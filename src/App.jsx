@@ -38,14 +38,14 @@ const STRIPE_CHECKOUT_URL = getEnv('VITE_STRIPE_URL');
 // --- COMPONENTES AUXILIARES ---
 const Toast = ({ message, type, onClose }) => {
   useEffect(() => {
-    const timer = setTimeout(onClose, 3500);
+    const timer = setTimeout(onClose, 5000); // Aumentei o tempo para conseguirmos ler erros longos
     return () => clearTimeout(timer);
   }, [onClose]);
   const bg = type === 'success' ? 'bg-teal-600/95' : 'bg-red-500/95';
   return (
     <div className={`fixed top-4 left-4 right-4 z-[100] ${bg} backdrop-blur-md text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4`}>
-      {type === 'success' ? <CheckCircle size={20}/> : <AlertTriangle size={20}/>}
-      <span className="font-medium text-sm leading-tight">{message}</span>
+      {type === 'success' ? <CheckCircle size={20} className="shrink-0"/> : <AlertTriangle size={20} className="shrink-0"/>}
+      <span className="font-medium text-sm leading-tight break-words">{message}</span>
     </div>
   );
 };
@@ -138,7 +138,7 @@ export default function App() {
 
   const analyzeImage = async () => {
     if (!imageFile) return showToast("Por favor, tire ou selecione uma foto.", "error");
-    if (!geminiApiKey) return showToast("Chave da IA não configurada no servidor.", "error");
+    if (!geminiApiKey) return showToast("A chave VITE_GEMINI_API_KEY não foi encontrada no Vercel.", "error");
     
     // Controle de Franquia (Auditoria de uso)
     if (!subscription.isPremium && subscription.usage >= 1) {
@@ -159,7 +159,8 @@ export default function App() {
       [SUSPEITAS CLÍNICAS]: (Liste de 1 a 3 possíveis diagnósticos dermatológicos)
       [RECOMENDAÇÕES]: (Sugira exames adicionais, raspados ou condutas terapêuticas iniciais). Seja técnico, direto e profissional.`;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${geminiApiKey}`, {
+      // Mudança crucial: Usando o modelo gemini-1.5-flash (Versão oficial estável)
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -174,7 +175,16 @@ export default function App() {
       });
 
       const data = await response.json();
-      if(data.error) throw new Error(data.error.message);
+      
+      // Auditoria de erros direta da API do Google
+      if(data.error) {
+         console.error("Erro da API Google:", data.error);
+         throw new Error(data.error.message);
+      }
+
+      if (!data.candidates || data.candidates.length === 0) {
+          throw new Error("A IA não retornou nenhum resultado.");
+      }
 
       const textResult = data.candidates[0].content.parts[0].text;
       setAiResult(textResult);
@@ -187,7 +197,8 @@ export default function App() {
 
     } catch (err) {
       console.error(err);
-      showToast("Falha na comunicação com a IA. Tente novamente.", "error");
+      // Se falhar, o erro exacto vai aparecer no ecrã para sabermos o que corrigir
+      showToast(`Falha na IA: ${err.message}`, "error");
     } finally {
       setIsAnalyzing(false);
     }
@@ -351,7 +362,7 @@ export default function App() {
           </div>
         );
 
-      // --- TELA DA IA (O MÓDULO FALTANTE) ---
+      // --- TELA DA IA ---
       case 'aiScanner':
         return (
           <div className="p-6 animate-in slide-in-from-bottom duration-300 pb-24">
