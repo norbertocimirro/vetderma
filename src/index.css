@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Correções de UX para Mobile (PWA) */
+* {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+body {
+  overscroll-behavior-y: none;
+  background-color: #f8fafc;
+}
+
+@keyframes scan {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(100%); }
+  100% { transform: translateY(0); }
+}
+
+.scanner-line {
+  animation: scan 2s ease-in-out infinite;
+}
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; }
+  .break-inside-avoid { page-break-inside: avoid; }
+}
