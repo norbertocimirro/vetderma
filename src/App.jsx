@@ -138,11 +138,11 @@ export default function App() {
   };
 
   const analyzeImage = async () => {
-    if (!imageFile) return showToast("Por favor, tire ou selecione uma foto.", "error");
-    if (!geminiApiKey) return showToast("A chave VITE_GEMINI_API_KEY não foi encontrada no Vercel.", "error");
+    if (!imageFile) return showToast("Por favor, tire ou seleccione uma foto.", "error");
+    if (!geminiApiKey) return showToast("A chave VITE_GEMINI_API_KEY não foi configurada no Vercel.", "error");
     
     if (!subscription.isPremium && subscription.usage >= 1) {
-      showToast("Você atingiu o limite de análises do plano gratuito.", "error");
+      showToast("Atingiu o limite de análises do plano gratuito.", "error");
       setTimeout(() => setView('settings'), 2000);
       return;
     }
@@ -150,41 +150,70 @@ export default function App() {
     setIsAnalyzing(true);
     
     try {
+      // Extracção segura do Base64 e do MimeType
       const base64Data = imagePreview.split(',')[1];
+      const mimeType = imagePreview.split(';')[0].split(':')[1];
       
       const prompt = `Atue como um Especialista em Dermatologia Veterinária. Analise a imagem da lesão na pele deste animal. 
-      Retorne APENAS um texto bem formatado em tópicos com as seguintes 3 seções:
-      [DESCRIÇÃO DA LESÃO]: (Descreva o que você vê fisicamente na imagem)
+      Retorne APENAS um texto bem formatado em tópicos com as seguintes 3 secções:
+      [DESCRIÇÃO DA LESÃO]: (Descreva o que vê fisicamente na imagem)
       [SUSPEITAS CLÍNICAS]: (Liste de 1 a 3 possíveis diagnósticos dermatológicos)
       [RECOMENDAÇÕES]: (Sugira exames adicionais, raspados ou condutas terapêuticas iniciais). Seja técnico, directo e profissional.`;
 
-      // CORREÇÃO DA AUDITORIA: Utilização do modelo 'gemini-1.5-flash-latest'
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            role: "user",
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType: imageFile.type, data: base64Data } }
-            ]
-          }]
-        })
-      });
-
-      const data = await response.json();
+      // PROTOCOLO DE MÚLTIPLOS MODELOS (Se um falhar, tenta o próximo automaticamente)
+      const modelsToTry = [
+        'gemini-1.5-flash', 
+        'gemini-1.5-pro', 
+        'gemini-1.0-pro-vision-latest', 
+        'gemini-pro-vision'
+      ];
       
-      if(data.error) {
-         console.error("Erro da API Google:", data.error);
-         throw new Error(data.error.message);
+      let finalData = null;
+      let lastError = null;
+      let success = false;
+
+      for (const model of modelsToTry) {
+        try {
+          console.log(`A tentar o modelo: ${model}...`);
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                role: "user",
+                parts: [
+                  { text: prompt },
+                  { inlineData: { mimeType: mimeType, data: base64Data } }
+                ]
+              }]
+            })
+          });
+
+          const data = await response.json();
+          
+          if (data.error) {
+             console.warn(`Erro no modelo ${model}:`, data.error.message);
+             lastError = data.error.message;
+             continue; // Falhou? Avança para o próximo modelo da lista!
+          }
+
+          if (data.candidates && data.candidates.length > 0) {
+              finalData = data;
+              success = true;
+              break; // Sucesso! Interrompe o loop.
+          }
+        } catch (err) {
+          console.warn(`Falha na requisição do modelo ${model}:`, err);
+          lastError = err.message;
+        }
       }
 
-      if (!data.candidates || data.candidates.length === 0) {
-          throw new Error("A IA não retornou nenhum resultado. A imagem pode estar ilegível.");
+      // Se passou por todos os 4 modelos e nenhum funcionou
+      if (!success) {
+         throw new Error(lastError || "Nenhum modelo de IA compatível foi encontrado para a sua chave.");
       }
 
-      const textResult = data.candidates[0].content.parts[0].text;
+      const textResult = finalData.candidates[0].content.parts[0].text;
       setAiResult(textResult);
 
       if (!subscription.isPremium) {
@@ -214,7 +243,6 @@ export default function App() {
     setImagePreview(null);
     setAiResult(null);
   };
-
 
   const renderContent = () => {
     switch(view) {
