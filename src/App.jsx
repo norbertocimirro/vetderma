@@ -124,7 +124,7 @@ export default function App() {
     }
   };
 
-  // --- LÓGICA DA IA (GEMINI) ---
+  // --- LÓGICA DA IA (GEMINI AUTO-DISCOVERY) ---
   const handleImageSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -150,70 +150,73 @@ export default function App() {
     setIsAnalyzing(true);
     
     try {
-      // Extracção segura do Base64 e do MimeType
+      // 1. OBTENÇÃO DINÂMICA DE MODELOS (A "Auditoria" da API)
+      const modelsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`);
+      const modelsData = await modelsRes.json();
+      
+      if (modelsData.error) {
+        throw new Error(`Erro na sua chave da Google: ${modelsData.error.message}`);
+      }
+
+      if (!modelsData.models || modelsData.models.length === 0) {
+        throw new Error("A sua conta Google não tem acesso a nenhum modelo Gemini no momento.");
+      }
+
+      // Filtra apenas modelos que suportam geração de conteúdo
+      const validModels = modelsData.models
+        .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
+        .map(m => m.name.replace('models/', '')); // Remove o prefixo 'models/'
+
+      console.log("Modelos compatíveis encontrados:", validModels);
+
+      // Escolhe o melhor modelo disponível (dá prioridade a versões flash ou pro que suportam visão)
+      // Evita modelos puros de texto se possível, prioriza a família 1.5 ou pro-vision
+      let chosenModel = validModels.find(m => m.includes('1.5-flash')) 
+                     || validModels.find(m => m.includes('2.0-flash'))
+                     || validModels.find(m => m.includes('pro-vision'))
+                     || validModels.find(m => m.includes('pro'))
+                     || validModels[0]; // Em último caso, tenta o primeiro da lista
+      
+      if (!chosenModel) {
+        throw new Error("Não foi possível encontrar um modelo de IA adequado na sua conta.");
+      }
+
+      // 2. PREPARAÇÃO DA IMAGEM E PEDIDO
       const base64Data = imagePreview.split(',')[1];
       const mimeType = imagePreview.split(';')[0].split(':')[1];
       
-      const prompt = `Atue como um Especialista em Dermatologia Veterinária. Analise a imagem da lesão na pele deste animal. 
+      const prompt = `Actue como um Especialista em Dermatologia Veterinária. Analise a imagem da lesão na pele deste animal. 
       Retorne APENAS um texto bem formatado em tópicos com as seguintes 3 secções:
       [DESCRIÇÃO DA LESÃO]: (Descreva o que vê fisicamente na imagem)
       [SUSPEITAS CLÍNICAS]: (Liste de 1 a 3 possíveis diagnósticos dermatológicos)
       [RECOMENDAÇÕES]: (Sugira exames adicionais, raspados ou condutas terapêuticas iniciais). Seja técnico, directo e profissional.`;
 
-      // PROTOCOLO DE MÚLTIPLOS MODELOS (Se um falhar, tenta o próximo automaticamente)
-      const modelsToTry = [
-        'gemini-1.5-flash', 
-        'gemini-1.5-pro', 
-        'gemini-1.0-pro-vision-latest', 
-        'gemini-pro-vision'
-      ];
+      // 3. CHAMADA COM O MODELO DINÂMICO
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${chosenModel}:generateContent?key=${geminiApiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            role: "user",
+            parts: [
+              { text: prompt },
+              { inlineData: { mimeType: mimeType, data: base64Data } }
+            ]
+          }]
+        })
+      });
+
+      const data = await response.json();
       
-      let finalData = null;
-      let lastError = null;
-      let success = false;
-
-      for (const model of modelsToTry) {
-        try {
-          console.log(`A tentar o modelo: ${model}...`);
-          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                role: "user",
-                parts: [
-                  { text: prompt },
-                  { inlineData: { mimeType: mimeType, data: base64Data } }
-                ]
-              }]
-            })
-          });
-
-          const data = await response.json();
-          
-          if (data.error) {
-             console.warn(`Erro no modelo ${model}:`, data.error.message);
-             lastError = data.error.message;
-             continue; // Falhou? Avança para o próximo modelo da lista!
-          }
-
-          if (data.candidates && data.candidates.length > 0) {
-              finalData = data;
-              success = true;
-              break; // Sucesso! Interrompe o loop.
-          }
-        } catch (err) {
-          console.warn(`Falha na requisição do modelo ${model}:`, err);
-          lastError = err.message;
-        }
+      if (data.error) {
+         throw new Error(`Erro no modelo ${chosenModel}: ${data.error.message}`);
       }
 
-      // Se passou por todos os 4 modelos e nenhum funcionou
-      if (!success) {
-         throw new Error(lastError || "Nenhum modelo de IA compatível foi encontrado para a sua chave.");
+      if (!data.candidates || data.candidates.length === 0) {
+          throw new Error("A IA não conseguiu interpretar a imagem. Tente uma foto mais nítida.");
       }
 
-      const textResult = finalData.candidates[0].content.parts[0].text;
+      const textResult = data.candidates[0].content.parts[0].text;
       setAiResult(textResult);
 
       if (!subscription.isPremium) {
@@ -223,7 +226,7 @@ export default function App() {
 
     } catch (err) {
       console.error(err);
-      showToast(`Falha na IA: ${err.message}`, "error");
+      showToast(`Aviso: ${err.message}`, "error");
     } finally {
       setIsAnalyzing(false);
     }
@@ -421,9 +424,10 @@ export default function App() {
                 )}
 
                 {isAnalyzing && (
-                  <div className="text-center p-6 text-teal-600 font-bold animate-pulse">
-                    <BrainCircuit size={32} className="mx-auto mb-2" />
-                    A Inteligência Artificial está a analisar as características da lesão...
+                  <div className="text-center p-6 text-teal-600 font-bold animate-pulse flex flex-col items-center justify-center">
+                    <BrainCircuit size={32} className="mx-auto mb-3 animate-bounce" />
+                    <p>A procurar o melhor modelo na sua conta...</p>
+                    <p className="text-xs opacity-70 mt-1">A analisar as características da lesão.</p>
                   </div>
                 )}
 
