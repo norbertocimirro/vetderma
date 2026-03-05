@@ -38,14 +38,15 @@ const STRIPE_CHECKOUT_URL = getEnv('VITE_STRIPE_URL');
 // --- COMPONENTES AUXILIARES ---
 const Toast = ({ message, type, onClose }) => {
   useEffect(() => {
-    const timer = setTimeout(onClose, 5000); // Aumentei o tempo para conseguirmos ler erros longos
+    const timer = setTimeout(onClose, 6000); 
     return () => clearTimeout(timer);
   }, [onClose]);
   const bg = type === 'success' ? 'bg-teal-600/95' : 'bg-red-500/95';
   return (
-    <div className={`fixed top-4 left-4 right-4 z-[100] ${bg} backdrop-blur-md text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4`}>
-      {type === 'success' ? <CheckCircle size={20} className="shrink-0"/> : <AlertTriangle size={20} className="shrink-0"/>}
-      <span className="font-medium text-sm leading-tight break-words">{message}</span>
+    <div className={`fixed top-4 left-4 right-4 z-[100] ${bg} backdrop-blur-md text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-start gap-3 animate-in fade-in slide-in-from-top-4`}>
+      <div className="mt-0.5">{type === 'success' ? <CheckCircle size={20}/> : <AlertTriangle size={20}/>}</div>
+      <span className="font-medium text-sm leading-tight break-words flex-1">{message}</span>
+      <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-lg transition-colors"><X size={16}/></button>
     </div>
   );
 };
@@ -132,7 +133,7 @@ export default function App() {
       const reader = new FileReader();
       reader.onloadend = () => setImagePreview(reader.result);
       reader.readAsDataURL(file);
-      setAiResult(null); // Limpa resultado anterior
+      setAiResult(null); 
     }
   };
 
@@ -140,7 +141,6 @@ export default function App() {
     if (!imageFile) return showToast("Por favor, tire ou selecione uma foto.", "error");
     if (!geminiApiKey) return showToast("A chave VITE_GEMINI_API_KEY não foi encontrada no Vercel.", "error");
     
-    // Controle de Franquia (Auditoria de uso)
     if (!subscription.isPremium && subscription.usage >= 1) {
       showToast("Você atingiu o limite de análises do plano gratuito.", "error");
       setTimeout(() => setView('settings'), 2000);
@@ -150,17 +150,16 @@ export default function App() {
     setIsAnalyzing(true);
     
     try {
-      // Remove o cabeçalho 'data:image/jpeg;base64,'
       const base64Data = imagePreview.split(',')[1];
       
       const prompt = `Atue como um Especialista em Dermatologia Veterinária. Analise a imagem da lesão na pele deste animal. 
       Retorne APENAS um texto bem formatado em tópicos com as seguintes 3 seções:
       [DESCRIÇÃO DA LESÃO]: (Descreva o que você vê fisicamente na imagem)
       [SUSPEITAS CLÍNICAS]: (Liste de 1 a 3 possíveis diagnósticos dermatológicos)
-      [RECOMENDAÇÕES]: (Sugira exames adicionais, raspados ou condutas terapêuticas iniciais). Seja técnico, direto e profissional.`;
+      [RECOMENDAÇÕES]: (Sugira exames adicionais, raspados ou condutas terapêuticas iniciais). Seja técnico, directo e profissional.`;
 
-      // Mudança crucial: Usando o modelo gemini-1.5-flash (Versão oficial estável)
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
+      // CORREÇÃO DA AUDITORIA: Utilização do modelo 'gemini-1.5-flash-latest'
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -176,20 +175,18 @@ export default function App() {
 
       const data = await response.json();
       
-      // Auditoria de erros direta da API do Google
       if(data.error) {
          console.error("Erro da API Google:", data.error);
          throw new Error(data.error.message);
       }
 
       if (!data.candidates || data.candidates.length === 0) {
-          throw new Error("A IA não retornou nenhum resultado.");
+          throw new Error("A IA não retornou nenhum resultado. A imagem pode estar ilegível.");
       }
 
       const textResult = data.candidates[0].content.parts[0].text;
       setAiResult(textResult);
 
-      // Cobrar o uso se não for premium
       if (!subscription.isPremium) {
         const subRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'subscription');
         await updateDoc(subRef, { usage: subscription.usage + 1 });
@@ -197,7 +194,6 @@ export default function App() {
 
     } catch (err) {
       console.error(err);
-      // Se falhar, o erro exacto vai aparecer no ecrã para sabermos o que corrigir
       showToast(`Falha na IA: ${err.message}`, "error");
     } finally {
       setIsAnalyzing(false);
@@ -316,7 +312,6 @@ export default function App() {
              </div>
 
              <div className="p-6">
-                {/* O BOTÃO ESTRELA DA IA */}
                 <button onClick={() => setView('aiScanner')} className="w-full bg-gradient-to-r from-teal-500 to-emerald-600 p-5 rounded-2xl text-white shadow-lg mb-8 flex items-center gap-4 active:scale-95 transition-transform">
                   <div className="bg-white/20 p-3 rounded-xl"><BrainCircuit size={28} className="text-white" /></div>
                   <div className="text-left flex-1">
@@ -337,7 +332,7 @@ export default function App() {
                   {cases.length === 0 ? (
                      <div className="text-center p-8 bg-white border border-slate-100 rounded-2xl shadow-sm">
                         <Activity size={40} className="mx-auto mb-3 text-slate-300" />
-                        <p className="font-medium text-slate-600">Nenhum registro clínico.</p>
+                        <p className="font-medium text-slate-600">Nenhum registo clínico.</p>
                      </div>
                   ) : (
                     cases.map(c => (
@@ -362,7 +357,6 @@ export default function App() {
           </div>
         );
 
-      // --- TELA DA IA ---
       case 'aiScanner':
         return (
           <div className="p-6 animate-in slide-in-from-bottom duration-300 pb-24">
@@ -372,7 +366,7 @@ export default function App() {
             </div>
 
             <h2 className="text-2xl font-black text-slate-800 mb-1">Scanner Dermatológico</h2>
-            <p className="text-xs text-slate-500 mb-6">Tire uma foto clara da lesão da {selectedPatient?.name} para análise.</p>
+            <p className="text-xs text-slate-500 mb-6">Tire uma foto clara da lesão de {selectedPatient?.name} para análise.</p>
 
             <input type="file" accept="image/*" capture="environment" className="hidden" ref={fileInputRef} onChange={handleImageSelect} />
 
@@ -380,7 +374,7 @@ export default function App() {
               <div onClick={() => fileInputRef.current.click()} className="border-2 border-dashed border-teal-300 bg-teal-50 rounded-3xl p-10 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-teal-100 transition-colors">
                 <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm text-teal-600 mb-4"><Camera size={32} /></div>
                 <h3 className="font-bold text-teal-800">Tirar Foto da Lesão</h3>
-                <p className="text-xs text-teal-600/70 mt-1">Use a câmera do seu dispositivo</p>
+                <p className="text-xs text-teal-600/70 mt-1">Use a câmara do seu telemóvel</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -401,7 +395,7 @@ export default function App() {
                 {isAnalyzing && (
                   <div className="text-center p-6 text-teal-600 font-bold animate-pulse">
                     <BrainCircuit size={32} className="mx-auto mb-2" />
-                    A Inteligência Artificial está analisando as características da lesão...
+                    A Inteligência Artificial está a analisar as características da lesão...
                   </div>
                 )}
 
