@@ -31,14 +31,13 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "vet-derma-pro-production"; 
 
-// CHAVES VITAIS
 const geminiApiKey = getEnv('VITE_GEMINI_API_KEY');
 const STRIPE_CHECKOUT_URL = getEnv('VITE_STRIPE_URL');
 
 // --- COMPONENTES AUXILIARES ---
 const Toast = ({ message, type, onClose }) => {
   useEffect(() => {
-    const timer = setTimeout(onClose, 6000); 
+    const timer = setTimeout(onClose, 4000); 
     return () => clearTimeout(timer);
   }, [onClose]);
   const bg = type === 'success' ? 'bg-teal-600/95' : 'bg-red-500/95';
@@ -124,7 +123,41 @@ export default function App() {
     }
   };
 
-  // --- LÓGICA DA IA (GEMINI TENTATIVA CONTÍNUA) ---
+  // --- TRADUTOR DE MARKDOWN PARA UI CLÍNICA ---
+  const formatClinicalText = (text) => {
+    if (!text) return null;
+    return text.split('\n').map((line, index) => {
+      const cleanLine = line.trim();
+      if (cleanLine === '') return <div key={index} className="h-2"></div>;
+      
+      // Títulos
+      if (cleanLine.startsWith('###')) {
+        return (
+          <h4 key={index} className="font-black text-teal-800 mt-5 mb-3 text-[13px] uppercase tracking-wider border-b-2 border-teal-100/60 pb-1.5 flex items-center gap-2">
+            <Activity size={16} className="text-teal-500"/>
+            {cleanLine.replace(/###/g, '').replace(/\[|\]/g, '').trim()}
+          </h4>
+        );
+      }
+      
+      const isListItem = cleanLine.startsWith('*') && !cleanLine.startsWith('**');
+      let lineContent = cleanLine.replace(/^\*\s/, '').trim();
+      
+      // Processa negritos (Ex: **Texto:**)
+      const parts = lineContent.split(/\*\*(.*?)\*\*/g);
+      
+      return (
+        <div key={index} className={`flex text-[13px] text-slate-700 leading-relaxed mb-1.5 ${isListItem ? 'ml-2' : ''}`}>
+           {isListItem && <div className="text-teal-500 font-bold mr-2 mt-0.5">•</div>}
+           <div className="flex-1">
+             {parts.map((part, i) => i % 2 === 1 ? <strong key={i} className="text-slate-900 font-bold">{part}</strong> : part)}
+           </div>
+        </div>
+      );
+    });
+  };
+
+  // --- LÓGICA DA IA ---
   const handleImageSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -139,10 +172,10 @@ export default function App() {
 
   const analyzeImage = async () => {
     if (!imageFile) return showToast("Por favor, tire ou seleccione uma foto.", "error");
-    if (!geminiApiKey) return showToast("A chave VITE_GEMINI_API_KEY não foi configurada no Vercel.", "error");
+    if (!geminiApiKey) return showToast("Chave da IA não encontrada.", "error");
     
     if (!subscription.isPremium && subscription.usage >= 1) {
-      showToast("Atingiu o limite de análises do plano gratuito.", "error");
+      showToast("Atingiu o limite do plano gratuito.", "error");
       setTimeout(() => setView('settings'), 2000);
       return;
     }
@@ -150,44 +183,48 @@ export default function App() {
     setIsAnalyzing(true);
     
     try {
-      // 1. OBTENÇÃO DINÂMICA DE MODELOS
       const modelsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`);
       const modelsData = await modelsRes.json();
       
-      if (modelsData.error) {
-        throw new Error(`Erro na sua chave da Google: ${modelsData.error.message}`);
-      }
+      if (modelsData.error) throw new Error(modelsData.error.message);
 
-      // Filtra e prepara a lista de modelos viáveis
       let validModels = modelsData.models
         .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
         .map(m => m.name.replace('models/', ''));
 
-      // Organiza a lista: modelos "flash" e "pro" vão para o topo
       validModels.sort((a, b) => {
         const scoreA = (a.includes('flash') ? 2 : 0) + (a.includes('pro') ? 1 : 0);
         const scoreB = (b.includes('flash') ? 2 : 0) + (b.includes('pro') ? 1 : 0);
         return scoreB - scoreA;
       });
 
-      // 2. PREPARAÇÃO DA IMAGEM E PEDIDO
       const base64Data = imagePreview.split(',')[1];
       const mimeType = imagePreview.split(';')[0].split(':')[1];
       
-      const prompt = `Actue como um Especialista em Dermatologia Veterinária. Analise a imagem da lesão na pele deste animal. 
-      Retorne APENAS um texto bem formatado em tópicos com as seguintes 3 secções:
-      [DESCRIÇÃO DA LESÃO]: (Descreva o que vê fisicamente na imagem)
-      [SUSPEITAS CLÍNICAS]: (Liste de 1 a 3 possíveis diagnósticos dermatológicos)
-      [RECOMENDAÇÕES]: (Sugira exames adicionais, raspados ou condutas terapêuticas iniciais). Seja técnico, directo e profissional.`;
+      // PROMPT CLÍNICO AVANÇADO (Com injecção de dados do paciente e controlo de tom)
+      const prompt = `Aja como um Médico Veterinário Especialista em Dermatologia.
+      Paciente atual: Espécie ${selectedPatient?.species || 'Indefinida'}, Raça ${selectedPatient?.breed || 'Indefinida'}.
+      
+      Analise a imagem da lesão cutânea deste paciente. Forneça um laudo técnico, direto, estritamente clínico e profissional.
+      Divida o laudo OBRIGATORIAMENTE nestas 3 seções exatas:
+      
+      ### DESCRIÇÃO DA LESÃO
+      Descreva a morfologia, distribuição, cor, bordas e características da superfície observáveis.
+      
+      ### SUSPEITAS CLÍNICAS
+      Liste de 1 a 3 diagnósticos diferenciais mais prováveis considerando as características da lesão e a raça/espécie informada.
+      
+      ### RECOMENDAÇÕES E CONDUTA
+      Sugira exames complementares (citologia, raspado, cultura) ou conduta terapêutica empírica inicial recomendada.
+      
+      Não use saudações. Seja direto e científico.`;
 
       let finalData = null;
       let lastError = "Nenhum modelo compatível encontrado.";
       let success = false;
 
-      // 3. LOOP DE TENTATIVA CONTÍNUA (O Protocolo Cimirro)
       for (const model of validModels) {
         try {
-          console.log(`A testar o modelo: ${model}...`);
           const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -198,34 +235,31 @@ export default function App() {
                   { text: prompt },
                   { inlineData: { mimeType: mimeType, data: base64Data } }
                 ]
-              }]
+              }],
+              // Reduzindo a temperatura para forçar respostas mais técnicas e menos inventadas
+              generationConfig: {
+                temperature: 0.1
+              }
             })
           });
 
           const data = await response.json();
-          
           if (data.error) {
-             console.warn(`O modelo ${model} falhou:`, data.error.message);
              lastError = data.error.message;
-             continue; // Erro! Ignora este e tenta o próximo imediatamente.
+             continue; 
           }
 
           if (data.candidates && data.candidates.length > 0) {
               finalData = data;
               success = true;
-              console.log(`Sucesso com o modelo: ${model}!`);
-              break; // Sucesso! Interrompe o loop de testes.
+              break; 
           }
         } catch (err) {
-          console.warn(`Falha na ligação com o modelo ${model}:`, err);
           lastError = err.message;
         }
       }
 
-      // Se passou por TODOS os modelos da Google e nenhum aceitou
-      if (!success) {
-         throw new Error(`A Google rejeitou todos os pedidos. Último erro: ${lastError}`);
-      }
+      if (!success) throw new Error(lastError);
 
       const textResult = finalData.candidates[0].content.parts[0].text;
       setAiResult(textResult);
@@ -236,7 +270,6 @@ export default function App() {
       }
 
     } catch (err) {
-      console.error(err);
       showToast(`Falha: ${err.message}`, "error");
     } finally {
       setIsAnalyzing(false);
@@ -246,12 +279,12 @@ export default function App() {
   const saveAiResultToPatient = async () => {
     if (!aiResult || !selectedPatient) return;
     await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'patients', selectedPatient.id, 'cases'), { 
-      description: "Análise Assistida por Inteligência Artificial (Gemini Vision).",
+      description: "Análise Assistida por IA (Dermatologia)",
       treatment: aiResult,
       date: serverTimestamp(),
       isAiGenerated: true
     });
-    showToast("Laudo da IA salvo no prontuário!");
+    showToast("Laudo clínico salvo no prontuário!");
     setView('patientDetail');
     setImageFile(null);
     setImagePreview(null);
@@ -317,7 +350,7 @@ export default function App() {
                 </div>
                 <div className="flex-1">
                   <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Raça</label>
-                  <input className="w-full mt-1 p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:ring-2 focus:ring-teal-500" placeholder="Poodle" value={newPatientData.breed} onChange={e => setNewPatientData({...newPatientData, breed: e.target.value})} />
+                  <input className="w-full mt-1 p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:ring-2 focus:ring-teal-500" placeholder="Ex: Poodle" value={newPatientData.breed} onChange={e => setNewPatientData({...newPatientData, breed: e.target.value})} />
                 </div>
               </div>
               <div>
@@ -379,17 +412,19 @@ export default function App() {
                   ) : (
                     cases.map(c => (
                       <div key={c.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
-                        {c.isAiGenerated && <div className="absolute top-0 right-0 bg-teal-500 text-white text-[9px] font-black px-3 py-1 rounded-bl-xl uppercase tracking-widest">IA AI-Scanner</div>}
+                        {c.isAiGenerated && <div className="absolute top-0 right-0 bg-teal-500 text-white text-[9px] font-black px-3 py-1 rounded-bl-xl uppercase tracking-widest flex items-center gap-1"><BrainCircuit size={10}/> Laudo IA</div>}
                         <div className="flex items-center gap-2 mb-3 text-xs font-bold text-slate-400 uppercase">
                           <Calendar size={14} />
                           {c.date ? new Date(c.date.toMillis()).toLocaleDateString('pt-BR') : 'Data recente'}
                         </div>
-                        <p className="text-sm text-slate-700 mb-3 whitespace-pre-wrap">{c.description}</p>
-                        {c.diagnosis && (
-                          <div className="p-3 bg-red-50 text-red-800 rounded-xl text-xs mb-2 border border-red-100"><span className="font-bold block mb-1">Diagnóstico:</span>{c.diagnosis}</div>
-                        )}
-                        {c.treatment && (
-                          <div className="p-3 bg-slate-50 text-slate-700 rounded-xl text-xs border border-slate-200 whitespace-pre-wrap"><span className="font-bold block mb-1 text-teal-700">Conduta / Laudo IA:</span>{c.treatment}</div>
+                        {c.isAiGenerated ? (
+                          <div className="mt-2">{formatClinicalText(c.treatment)}</div>
+                        ) : (
+                          <>
+                            <p className="text-sm text-slate-700 mb-3 whitespace-pre-wrap">{c.description}</p>
+                            {c.diagnosis && <div className="p-3 bg-red-50 text-red-800 rounded-xl text-xs mb-2 border border-red-100"><span className="font-bold block mb-1">Diagnóstico:</span>{c.diagnosis}</div>}
+                            {c.treatment && <div className="p-3 bg-slate-50 text-slate-700 rounded-xl text-xs border border-slate-200 whitespace-pre-wrap"><span className="font-bold block mb-1 text-teal-700">Conduta:</span>{c.treatment}</div>}
+                          </>
                         )}
                       </div>
                     ))
@@ -404,11 +439,11 @@ export default function App() {
           <div className="p-6 animate-in slide-in-from-bottom duration-300 pb-24">
             <div className="flex items-center justify-between mb-6">
               <button onClick={() => { setView('patientDetail'); setImagePreview(null); setAiResult(null); }} className="flex items-center gap-1 text-slate-500 font-bold"><ChevronLeft /> Voltar</button>
-              <div className="bg-teal-100 text-teal-800 text-[10px] font-black px-3 py-1 rounded-full uppercase flex items-center gap-1"><BrainCircuit size={12}/> Gemini IA</div>
+              <div className="bg-teal-100 text-teal-800 text-[10px] font-black px-3 py-1 rounded-full uppercase flex items-center gap-1"><BrainCircuit size={12}/> Scanner IA</div>
             </div>
 
-            <h2 className="text-2xl font-black text-slate-800 mb-1">Scanner Dermatológico</h2>
-            <p className="text-xs text-slate-500 mb-6">Tire uma foto clara da lesão de {selectedPatient?.name} para análise.</p>
+            <h2 className="text-2xl font-black text-slate-800 mb-1">Análise Dermatológica</h2>
+            <p className="text-xs text-slate-500 mb-6">Tire uma foto clara da lesão de {selectedPatient?.name} ({selectedPatient?.breed}) para análise clínica.</p>
 
             <input type="file" accept="image/*" capture="environment" className="hidden" ref={fileInputRef} onChange={handleImageSelect} />
 
@@ -416,7 +451,7 @@ export default function App() {
               <div onClick={() => fileInputRef.current.click()} className="border-2 border-dashed border-teal-300 bg-teal-50 rounded-3xl p-10 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-teal-100 transition-colors">
                 <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm text-teal-600 mb-4"><Camera size={32} /></div>
                 <h3 className="font-bold text-teal-800">Tirar Foto da Lesão</h3>
-                <p className="text-xs text-teal-600/70 mt-1">Use a câmara do seu telemóvel</p>
+                <p className="text-xs text-teal-600/70 mt-1">Aproxime e foque bem a área afectada</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -430,25 +465,31 @@ export default function App() {
 
                 {!aiResult && !isAnalyzing && (
                   <button onClick={analyzeImage} className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl shadow-xl active:scale-95 transition-transform flex items-center justify-center gap-2 text-lg">
-                    <ScanLine size={20}/> Iniciar Análise IA
+                    <ScanLine size={20}/> Gerar Laudo IA
                   </button>
                 )}
 
                 {isAnalyzing && (
                   <div className="text-center p-6 text-teal-600 font-bold animate-pulse flex flex-col items-center justify-center">
                     <BrainCircuit size={32} className="mx-auto mb-3 animate-bounce" />
-                    <p>A procurar uma ligação segura com a IA...</p>
-                    <p className="text-xs opacity-70 mt-1">Testando os servidores disponíveis.</p>
+                    <p>A processar imagem e cruzar dados clínicos...</p>
+                    <p className="text-xs opacity-70 mt-1">A avaliar {selectedPatient?.species} - {selectedPatient?.breed}</p>
                   </div>
                 )}
 
                 {aiResult && (
                   <div className="bg-white p-5 rounded-2xl border border-teal-200 shadow-lg animate-in fade-in">
-                    <h3 className="font-black text-teal-800 mb-3 flex items-center gap-2"><CheckCircle size={18}/> Resultado da Análise</h3>
-                    <div className="text-sm text-slate-700 whitespace-pre-wrap font-medium">{aiResult}</div>
+                    <div className="bg-teal-50 -m-5 mb-4 p-4 rounded-t-2xl border-b border-teal-100 flex items-center gap-2">
+                      <CheckCircle size={20} className="text-teal-600"/> 
+                      <h3 className="font-black text-teal-800">Laudo Concluído</h3>
+                    </div>
+                    
+                    <div className="max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
+                      {formatClinicalText(aiResult)}
+                    </div>
                     
                     <button onClick={saveAiResultToPatient} className="w-full mt-6 py-4 bg-teal-600 text-white font-bold rounded-xl shadow-md active:scale-95 transition-transform flex items-center justify-center gap-2">
-                      <Save size={18}/> Salvar no Prontuário
+                      <Save size={18}/> Guardar no Prontuário
                     </button>
                   </div>
                 )}
@@ -520,6 +561,9 @@ export default function App() {
         * { -webkit-tap-highlight-color: transparent; }
         body { background-color: #f1f5f9; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         @keyframes scan {
           0% { transform: translateY(-100%); }
           50% { transform: translateY(100%); }
