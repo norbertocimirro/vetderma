@@ -10,6 +10,7 @@ import {
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, query, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { getStorage, ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 
 // --- CONFIGURAÇÃO DE AMBIENTE SEGURA ---
 const getEnv = (key) => {
@@ -30,6 +31,7 @@ const finalConfig = (typeof __firebase_config !== 'undefined') ? JSON.parse(__fi
 const app = initializeApp(finalConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
 const appId = "vet-derma-pro-production"; 
 
 const geminiApiKey = getEnv('VITE_GEMINI_API_KEY');
@@ -51,6 +53,25 @@ const Toast = ({ message, type, onClose }) => {
   );
 };
 
+const DeleteConfirmModal = ({ isOpen, onConfirm, onCancel }) => {
+  if(!isOpen) return null;
+  return (
+      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white p-6 rounded-3xl w-full max-w-sm shadow-2xl animate-in zoom-in-95">
+              <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4">
+                  <AlertTriangle size={24} />
+              </div>
+              <h3 className="font-black text-lg text-slate-800 mb-2">Excluir Prontuário?</h3>
+              <p className="text-sm text-slate-500 mb-6 font-medium">Esta ação não pode ser desfeita. O laudo será permanentemente apagado da ficha do paciente.</p>
+              <div className="flex gap-3">
+                  <button onClick={onCancel} className="flex-1 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl active:scale-95 transition-transform">Cancelar</button>
+                  <button onClick={onConfirm} className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl shadow-lg shadow-red-600/20 active:scale-95 transition-transform">Sim, Excluir</button>
+              </div>
+          </div>
+      </div>
+  )
+};
+
 // --- COMPONENTE PRINCIPAL ---
 export default function App() {
   const [user, setUser] = useState(null);
@@ -66,12 +87,18 @@ export default function App() {
   const [newPatientData, setNewPatientData] = useState({ name: '', species: 'Cão', breed: '', owner: '' });
   const [newCaseData, setNewCaseData] = useState({ description: '', diagnosis: '', treatment: '' });
 
-  // ESTADOS DA IA
+  // ESTADOS DA IA E ARMAZENAMENTO
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isSavingRecord, setIsSavingRecord] = useState(false);
   const [aiResult, setAiResult] = useState(null);
-  const [scanContext, setScanContext] = useState(''); // NOVO: Contexto Clínico Adicional
+  const [scanContext, setScanContext] = useState(''); 
+  const fileInputRef = useRef(null);
+
+  // ESTADOS DE EDIÇÃO E EXCLUSÃO
+  const [caseToDelete, setCaseToDelete] = useState(null);
+  const [editingCase, setEditingCase] = useState(null); // Armazena os dados do caso em edição
 
   const showToast = (message, type = 'success') => setToast({ message, type });
 
@@ -127,7 +154,6 @@ export default function App() {
   // --- TRADUTOR DE MARKDOWN PARA UI CLÍNICA ---
   const formatClinicalText = (text) => {
     if (!text) return null;
-    
     const sections = text.split(/(?=###\s)/);
 
     return sections.map((section, index) => {
@@ -178,10 +204,8 @@ export default function App() {
             {contentLines.map((line, i) => {
               const cleanLine = line.trim();
               if (!cleanLine) return <div key={i} className="h-1"></div>;
-
               const isListItem = cleanLine.startsWith('*') && !cleanLine.startsWith('**');
               let lineContent = cleanLine.replace(/^\*\s/, '').trim();
-              
               const parts = lineContent.split(/\*\*(.*?)\*\*/g);
 
               return (
@@ -209,12 +233,12 @@ export default function App() {
       reader.onloadend = () => setImagePreview(reader.result);
       reader.readAsDataURL(file);
       setAiResult(null); 
-      setScanContext(''); // Limpa contexto anterior
+      setScanContext(''); 
     }
   };
 
   const analyzeImage = async () => {
-    if (!imageFile) return showToast("Por favor, tire ou seleccione uma fotografia.", "error");
+    if (!imageFile) return showToast("Por favor, tire ou selecione uma fotografia.", "error");
     if (!geminiApiKey) return showToast("Chave da IA não encontrada.", "error");
     
     if (!subscription.isPremium && subscription.usage >= 50) {
@@ -228,7 +252,6 @@ export default function App() {
     try {
       const modelsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`);
       const modelsData = await modelsRes.json();
-      
       if (modelsData.error) throw new Error(modelsData.error.message);
 
       let validModels = modelsData.models
@@ -237,36 +260,27 @@ export default function App() {
 
       validModels.sort((a, b) => {
         let scoreA = 0; let scoreB = 0;
-        if (a.includes('1.5-pro')) scoreA += 100;
-        else if (a.includes('pro')) scoreA += 50;
-        if (a.includes('1.5-flash')) scoreA += 30;
-        else if (a.includes('flash')) scoreA += 10;
-        
-        if (b.includes('1.5-pro')) scoreB += 100;
-        else if (b.includes('pro')) scoreB += 50;
-        if (b.includes('1.5-flash')) scoreB += 30;
-        else if (b.includes('flash')) scoreB += 10;
+        if (a.includes('1.5-pro')) scoreA += 100; else if (a.includes('pro')) scoreA += 50;
+        if (a.includes('1.5-flash')) scoreA += 30; else if (a.includes('flash')) scoreA += 10;
+        if (b.includes('1.5-pro')) scoreB += 100; else if (b.includes('pro')) scoreB += 50;
+        if (b.includes('1.5-flash')) scoreB += 30; else if (b.includes('flash')) scoreB += 10;
         return scoreB - scoreA;
       });
 
       const base64Data = imagePreview.split(',')[1];
       const mimeType = imagePreview.split(';')[0].split(':')[1];
-      
       const contextStr = scanContext.trim() !== '' ? `\n- Anamnese/Sintomas relatados: ${scanContext}` : '\n- Anamnese: Não fornecida. Apenas exame visual.';
 
-      // PROMPT RE-ENGENHADO: Correlação Clínico-Visual Exigida
-      const prompt = `Actue EXCLUSIVAMENTE como um Médico Veterinário Especialista em Dermatologia com vasto conhecimento clínico.
-      
+      const prompt = `Atue EXCLUSIVAMENTE como um Médico Veterinário Especialista em Dermatologia com vasto conhecimento clínico.
       DADOS CLÍNICOS DO PACIENTE:
       - Espécie: ${selectedPatient?.species || 'Não informada'}
       - Raça: ${selectedPatient?.breed || 'Não informada'}${contextStr}
       
-      O seu objectivo é fornecer o diagnóstico diferencial MAIS PRECISO possível, não apenas descrever a foto.
-      
+      O seu objetivo é fornecer o diagnóstico diferencial MAIS PRECISO possível.
       INSTRUÇÕES DE RACIOCÍNIO (Chain of Thought):
       1. Se a anamnese mencionar idade jovem e a lesão for um nódulo alopécico circular, considere fortemente Histiocitoma Canino Benigno ou Dermatofitose.
       2. Se for um nódulo crústico com eritema, considere Piodermite Bacteriana, Demodiciose Localizada ou Mastocitoma.
-      3. CRUZE a apresentação visual estritamente com os sintomas descritos na anamnese (ou a ausência deles). 
+      3. CRUZE a apresentação visual estritamente com os sintomas descritos na anamnese. 
       4. Se a lesão não for compatível com "Alergia a Pulgas", NÃO sugira alergia a pulgas.
       
       Gere o laudo clínico estruturado EXACTAMENTE com estes três títulos em Markdown (NÃO adicione outros):
@@ -275,12 +289,10 @@ export default function App() {
       [Descreva os padrões morfológicos primários e secundários (ex: pápula, crosta, alopecia focal, colar epidérmico).]
       
       ### SUSPEITAS CLÍNICAS (DIAGNÓSTICO DIFERENCIAL)
-      [Liste de 1 a 3 diagnósticos exatos. Seja muito específico (ex: Piodermite estafilocócica, Demodiciose localizada, Histiocitoma cutâneo). Justifique brevemente cada um relacionando o que vê com a anamnese.]
+      [Liste de 1 a 3 diagnósticos exatos. Seja muito específico. Justifique brevemente cada um relacionando o que vê com a anamnese.]
       
       ### RECOMENDAÇÕES E CONDUTA
-      [Especifique os exames: Citologia (imprint/punção), Raspagem, ou Cultura. O que fazer primeiro?]
-      
-      Regra de Ouro: Seja direto, puramente científico e não faça saudações.`;
+      [Especifique os exames e indique a abordagem terapêutica preliminar.]`;
 
       let finalData = null;
       let lastError = "Nenhum modelo compatível encontrado.";
@@ -292,33 +304,15 @@ export default function App() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              contents: [{
-                role: "user",
-                parts: [
-                  { text: prompt },
-                  { inlineData: { mimeType: mimeType, data: base64Data } }
-                ]
-              }],
-              generationConfig: {
-                temperature: 0.3 // Ajustado para permitir dedução clínica moderada sem alucinação
-              }
+              contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: mimeType, data: base64Data } }] }],
+              generationConfig: { temperature: 0.3 }
             })
           });
 
           const data = await response.json();
-          if (data.error) {
-             lastError = data.error.message;
-             continue; 
-          }
-
-          if (data.candidates && data.candidates.length > 0) {
-              finalData = data;
-              success = true;
-              break; 
-          }
-        } catch (err) {
-          lastError = err.message;
-        }
+          if (data.error) { lastError = data.error.message; continue; }
+          if (data.candidates && data.candidates.length > 0) { finalData = data; success = true; break; }
+        } catch (err) { lastError = err.message; }
       }
 
       if (!success) throw new Error(lastError);
@@ -339,20 +333,82 @@ export default function App() {
   };
 
   const saveAiResultToPatient = async () => {
-    if (!aiResult || !selectedPatient) return;
-    await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'patients', selectedPatient.id, 'cases'), { 
-      description: `Análise Assistida por IA.\n${scanContext ? 'Sintomas relatados: ' + scanContext : ''}`,
-      treatment: aiResult,
-      date: serverTimestamp(),
-      isAiGenerated: true
-    });
-    showToast("Laudo clínico guardado na ficha!");
-    setView('patientDetail');
-    setImageFile(null);
-    setImagePreview(null);
-    setAiResult(null);
-    setScanContext('');
+    if (!aiResult || !selectedPatient || !user) return;
+    setIsSavingRecord(true);
+    
+    try {
+      let imageUrl = null;
+      // Salvar a imagem no Firebase Storage
+      if (imagePreview) {
+        const imageName = `image_${Date.now()}.jpg`;
+        const storageRef = ref(storage, `artifacts/${appId}/users/${user.uid}/patients/${selectedPatient.id}/cases/${imageName}`);
+        await uploadString(storageRef, imagePreview, 'data_url');
+        imageUrl = await getDownloadURL(storageRef);
+      }
+
+      await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'patients', selectedPatient.id, 'cases'), { 
+        description: `Análise Assistida por IA.\n${scanContext ? 'Sintomas relatados: ' + scanContext : ''}`,
+        treatment: aiResult,
+        date: serverTimestamp(),
+        isAiGenerated: true,
+        imageUrl: imageUrl // URL da foto salva
+      });
+      
+      showToast("Laudo e foto guardados no prontuário!");
+      setView('patientDetail');
+      setImageFile(null);
+      setImagePreview(null);
+      setAiResult(null);
+      setScanContext('');
+    } catch (error) {
+      console.error(error);
+      showToast("Erro ao guardar a imagem. Verificou as regras do Storage?", "error");
+    } finally {
+      setIsSavingRecord(false);
+    }
   };
+
+  // --- FUNÇÕES DE EXCLUSÃO E EDIÇÃO ---
+  const handleDeleteCase = async () => {
+    if (!caseToDelete || !user || !selectedPatient) return;
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'patients', selectedPatient.id, 'cases', caseToDelete.id));
+      showToast("Prontuário excluído com sucesso.");
+      setCaseToDelete(null);
+    } catch (error) {
+      showToast("Erro ao excluir.", "error");
+    }
+  };
+
+  const openEditCase = (c) => {
+    setEditingCase({
+      id: c.id,
+      description: c.description || '',
+      diagnosis: c.diagnosis || '',
+      treatment: c.treatment || '',
+      isAiGenerated: c.isAiGenerated || false
+    });
+    setView('editCase');
+  };
+
+  const saveEditedCase = async () => {
+    if (!editingCase || !user || !selectedPatient) return;
+    try {
+      const caseRef = doc(db, 'artifacts', appId, 'users', user.uid, 'patients', selectedPatient.id, 'cases', editingCase.id);
+      await updateDoc(caseRef, {
+        description: editingCase.description,
+        diagnosis: editingCase.diagnosis,
+        treatment: editingCase.treatment,
+        // Não alteramos a data para preservar o histórico original, ou poderíamos adicionar 'updatedAt'
+      });
+      showToast("Prontuário atualizado!");
+      setView('patientDetail');
+      setEditingCase(null);
+    } catch (error) {
+      showToast("Erro ao atualizar.", "error");
+    }
+  };
+
 
   const renderContent = () => {
     switch(view) {
@@ -379,7 +435,7 @@ export default function App() {
                       <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl ${p.species === 'Gato' ? 'bg-orange-50 text-orange-500' : 'bg-teal-50 text-teal-600'}`}>{p.species === 'Gato' ? '🐱' : '🐶'}</div>
                       <div>
                         <h3 className="font-bold text-slate-800 text-base">{p.name}</h3>
-                        <p className="text-xs text-slate-400 font-medium">{p.breed} • Dono: {p.owner}</p>
+                        <p className="text-xs text-slate-400 font-medium">{p.breed} • Tutor(a): {p.owner}</p>
                       </div>
                     </div>
                     <ChevronRight size={20} className="text-slate-300" />
@@ -417,7 +473,7 @@ export default function App() {
                 </div>
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Dono / Tutor(a)</label>
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Tutor(a)</label>
                 <input className="w-full mt-1 p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:ring-2 focus:ring-teal-500" placeholder="Nome Completo" value={newPatientData.owner} onChange={e => setNewPatientData({...newPatientData, owner: e.target.value})} />
               </div>
               <button onClick={async () => {
@@ -426,7 +482,7 @@ export default function App() {
                 setNewPatientData({ name: '', species: 'Cão', breed: '', owner: '' });
                 setView('dashboard');
                 showToast("Paciente registado!");
-              }} className="w-full py-4 mt-4 bg-teal-600 text-white font-bold rounded-2xl shadow-xl active:scale-95 transition-all text-lg">Guardar Paciente</button>
+              }} className="w-full py-4 mt-4 bg-teal-600 text-white font-bold rounded-2xl shadow-xl active:scale-95 transition-all text-lg">Salvar Paciente</button>
             </div>
           </div>
         );
@@ -454,15 +510,15 @@ export default function App() {
                   <div className="bg-white/20 p-3 rounded-xl"><BrainCircuit size={28} className="text-white" /></div>
                   <div className="text-left flex-1">
                     <h3 className="font-black text-lg leading-tight shadow-sm">Analisar com IA</h3>
-                    <p className="text-xs font-medium text-teal-100 mt-1">Identificar lesões por fotografia</p>
+                    <p className="text-xs font-medium text-teal-100 mt-1">Foto, Laudo e Contexto Clínico</p>
                   </div>
                   <ChevronRight size={24} className="text-teal-200"/>
                 </button>
 
                 <div className="flex justify-between items-center mb-6">
-                  <h2 className="font-bold text-lg text-slate-800 flex items-center gap-2"><FileText size={20} className="text-teal-600"/> Historial Clínico</h2>
+                  <h2 className="font-bold text-lg text-slate-800 flex items-center gap-2"><FileText size={20} className="text-teal-600"/> Histórico de Prontuários</h2>
                   <button onClick={() => setView('newCase')} className="flex items-center gap-1 px-4 py-2 bg-teal-50 text-teal-700 font-bold rounded-xl text-sm active:bg-teal-100 transition-colors">
-                    <Plus size={16}/> Consulta Manual
+                    <Plus size={16}/> Inserir Manual
                   </button>
                 </div>
 
@@ -474,16 +530,33 @@ export default function App() {
                      </div>
                   ) : (
                     cases.map(c => (
-                      <div key={c.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
-                        {c.isAiGenerated && <div className="absolute top-0 right-0 bg-teal-500 text-white text-[9px] font-black px-3 py-1 rounded-bl-xl uppercase tracking-widest flex items-center gap-1"><BrainCircuit size={10}/> Laudo IA</div>}
-                        <div className="flex items-center gap-2 mb-4 text-xs font-bold text-slate-400 uppercase">
-                          <Calendar size={14} />
-                          {c.date ? new Date(c.date.toMillis()).toLocaleDateString('pt-BR') : 'Data recente'}
+                      <div key={c.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden group">
+                        
+                        {/* Ações do Prontuário (Editar / Excluir) */}
+                        <div className="absolute top-4 right-4 flex items-center gap-2 opacity-90">
+                           <button onClick={() => openEditCase(c)} className="p-2 bg-slate-50 text-slate-500 hover:text-teal-600 rounded-lg transition-colors"><Edit3 size={16}/></button>
+                           <button onClick={() => setCaseToDelete(c)} className="p-2 bg-slate-50 text-slate-500 hover:text-red-600 rounded-lg transition-colors"><Trash2 size={16}/></button>
                         </div>
+
+                        {c.isAiGenerated && <div className="absolute top-0 left-0 bg-teal-500 text-white text-[9px] font-black px-3 py-1 rounded-br-xl uppercase tracking-widest flex items-center gap-1"><BrainCircuit size={10}/> Laudo IA</div>}
+                        
+                        <div className={`flex items-center gap-2 mb-4 text-xs font-bold text-slate-400 uppercase ${c.isAiGenerated ? 'mt-4' : ''}`}>
+                          <Clock size={14} />
+                          {c.date ? new Date(c.date.toMillis()).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'Data recente'}
+                        </div>
+
+                        {/* Imagem do Prontuário (se existir) */}
+                        {c.imageUrl && (
+                          <div className="mb-4 rounded-xl overflow-hidden border border-slate-100 bg-slate-50">
+                            <img src={c.imageUrl} alt="Lesão" className="w-full h-48 object-cover hover:h-auto transition-all cursor-pointer" />
+                          </div>
+                        )}
+
                         {c.isAiGenerated ? (
                           <div className="mt-2 -mx-1">
                             {c.description.includes('Sintomas') && (
-                                <div className="bg-slate-50 p-2 rounded-lg text-xs text-slate-600 mb-3 italic">
+                                <div className="bg-slate-50 p-3 rounded-xl text-xs text-slate-600 mb-3 font-medium border border-slate-100 flex gap-2 items-start">
+                                    <User size={14} className="text-slate-400 mt-0.5 shrink-0"/>
                                     "{c.description.replace('Análise Assistida por IA.\nSintomas relatados: ', '')}"
                                 </div>
                             )}
@@ -491,9 +564,9 @@ export default function App() {
                           </div>
                         ) : (
                           <>
-                            <p className="text-sm text-slate-700 mb-3 whitespace-pre-wrap">{c.description}</p>
-                            {c.diagnosis && <div className="p-3 bg-red-50 text-red-800 rounded-xl text-xs mb-2 border border-red-100"><span className="font-bold block mb-1">Diagnóstico:</span>{c.diagnosis}</div>}
-                            {c.treatment && <div className="p-3 bg-slate-50 text-slate-700 rounded-xl text-xs border border-slate-200 whitespace-pre-wrap"><span className="font-bold block mb-1 text-teal-700">Conduta:</span>{c.treatment}</div>}
+                            <p className="text-sm text-slate-700 mb-3 whitespace-pre-wrap leading-relaxed">{c.description}</p>
+                            {c.diagnosis && <div className="p-3 bg-red-50 text-red-800 rounded-xl text-xs mb-2 border border-red-100"><span className="font-bold block mb-1 uppercase tracking-wider text-[10px]">Diagnóstico:</span>{c.diagnosis}</div>}
+                            {c.treatment && <div className="p-3 bg-emerald-50 text-emerald-800 rounded-xl text-xs border border-emerald-100 whitespace-pre-wrap"><span className="font-bold block mb-1 uppercase tracking-wider text-[10px]">Conduta / Tratamento:</span>{c.treatment}</div>}
                           </>
                         )}
                       </div>
@@ -581,8 +654,8 @@ export default function App() {
                       {formatClinicalText(aiResult)}
                     </div>
                     
-                    <button onClick={saveAiResultToPatient} className="w-full mt-4 py-4 bg-teal-600 text-white font-black text-lg rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2 border-b-4 border-teal-800">
-                      <Save size={20}/> Guardar na Ficha Clínica
+                    <button disabled={isSavingRecord} onClick={saveAiResultToPatient} className={`w-full mt-4 py-4 ${isSavingRecord ? 'bg-teal-800' : 'bg-teal-600'} text-white font-black text-lg rounded-xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 border-b-4 border-teal-800`}>
+                      {isSavingRecord ? <><Activity className="animate-spin" size={20}/> Guardando Foto e Laudo...</> : <><Save size={20}/> Guardar no Prontuário</>}
                     </button>
                   </div>
                 )}
@@ -598,20 +671,69 @@ export default function App() {
             <div className="bg-white p-6 rounded-3xl space-y-5 shadow-sm border border-slate-100">
               <h2 className="text-xl font-bold text-slate-800 mb-2">Evolução Manual</h2>
               <div>
-                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Anamnese / Sintomas</label>
-                <textarea rows="3" className="w-full mt-1 p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:ring-2 focus:ring-teal-500 transition-all resize-none" placeholder="Descreva os sintomas..." value={newCaseData.description} onChange={e => setNewCaseData({...newCaseData, description: e.target.value})} />
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Anamnese / Evolução</label>
+                <textarea rows="3" className="w-full mt-1 p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:ring-2 focus:ring-teal-500 transition-all resize-none" placeholder="Descreva a evolução do paciente..." value={newCaseData.description} onChange={e => setNewCaseData({...newCaseData, description: e.target.value})} />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Diagnóstico / Suspeita (Opcional)</label>
+                <input className="w-full mt-1 p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:ring-2 focus:ring-teal-500 transition-all" placeholder="Ex: Dermatite Atópica" value={newCaseData.diagnosis} onChange={e => setNewCaseData({...newCaseData, diagnosis: e.target.value})} />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Conduta / Tratamento (Opcional)</label>
+                <textarea rows="2" className="w-full mt-1 p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:ring-2 focus:ring-teal-500 transition-all resize-none" placeholder="Prescrição e recomendações..." value={newCaseData.treatment} onChange={e => setNewCaseData({...newCaseData, treatment: e.target.value})} />
               </div>
               <div className="pt-4 border-t border-slate-100">
                 <button onClick={async () => {
-                  if(!newCaseData.description) return showToast("A descrição é obrigatória.", "error");
+                  if(!newCaseData.description) return showToast("A descrição principal é obrigatória.", "error");
                   await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'patients', selectedPatient.id, 'cases'), { 
                     ...newCaseData, date: serverTimestamp() 
                   });
                   setNewCaseData({ description: '', diagnosis: '', treatment: '' });
                   setView('patientDetail');
-                  showToast("Evolução guardada!");
+                  showToast("Evolução guardada com sucesso!");
                 }} className="w-full py-4 bg-teal-600 text-white font-bold rounded-2xl shadow-xl active:scale-95 transition-all text-lg flex justify-center items-center gap-2">
-                  <Save size={20}/> Guardar Evolução
+                  <Save size={20}/> Guardar Prontuário
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'editCase':
+        if (!editingCase) return null;
+        return (
+          <div className="p-6 animate-in slide-in-from-bottom duration-300 pb-24">
+            <button onClick={() => { setView('patientDetail'); setEditingCase(null); }} className="mb-6 flex items-center gap-1 text-slate-500 font-bold"><ChevronLeft /> Cancelar</button>
+            <div className="bg-white p-6 rounded-3xl space-y-5 shadow-sm border border-slate-100">
+              <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center gap-2"><Edit3 size={20}/> Editar Prontuário</h2>
+              
+              {editingCase.isAiGenerated && (
+                <div className="bg-amber-50 p-3 rounded-xl text-xs text-amber-800 flex items-start gap-2 mb-2">
+                  <AlertTriangle size={16} className="shrink-0 mt-0.5"/>
+                  <p>Está a editar um laudo gerado pela IA. As alterações que fizer no texto abaixo serão aplicadas diretamente ao formato visual do laudo.</p>
+                </div>
+              )}
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Contexto / Anamnese</label>
+                <textarea rows={editingCase.isAiGenerated ? 2 : 3} className="w-full mt-1 p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:ring-2 focus:ring-teal-500 transition-all resize-none" value={editingCase.description} onChange={e => setEditingCase({...editingCase, description: e.target.value})} />
+              </div>
+              
+              {!editingCase.isAiGenerated && (
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Diagnóstico / Suspeita</label>
+                  <input className="w-full mt-1 p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:ring-2 focus:ring-teal-500 transition-all" value={editingCase.diagnosis} onChange={e => setEditingCase({...editingCase, diagnosis: e.target.value})} />
+                </div>
+              )}
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">{editingCase.isAiGenerated ? 'Texto do Laudo (Markdown)' : 'Conduta / Tratamento'}</label>
+                <textarea rows={editingCase.isAiGenerated ? 10 : 3} className="w-full mt-1 p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:ring-2 focus:ring-teal-500 transition-all resize-none text-xs font-mono" value={editingCase.treatment} onChange={e => setEditingCase({...editingCase, treatment: e.target.value})} />
+              </div>
+              
+              <div className="pt-4 border-t border-slate-100">
+                <button onClick={saveEditedCase} className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl shadow-xl active:scale-95 transition-all text-lg flex justify-center items-center gap-2">
+                  <Save size={20}/> Atualizar Prontuário
                 </button>
               </div>
             </div>
@@ -679,6 +801,12 @@ export default function App() {
           </button>
         </div>
       )}
+      
+      <DeleteConfirmModal 
+        isOpen={!!caseToDelete} 
+        onConfirm={handleDeleteCase} 
+        onCancel={() => setCaseToDelete(null)} 
+      />
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );
