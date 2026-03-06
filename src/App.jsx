@@ -72,7 +72,6 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiResult, setAiResult] = useState(null);
   const [scanContext, setScanContext] = useState(''); // NOVO: Contexto Clínico Adicional
-  const fileInputRef = useRef(null);
 
   const showToast = (message, type = 'success') => setToast({ message, type });
 
@@ -514,15 +513,23 @@ export default function App() {
             </div>
 
             <h2 className="text-2xl font-black text-slate-800 mb-1">Análise Dermatológica</h2>
-            <p className="text-xs text-slate-500 mb-6">Tire uma fotografia clara da lesão de {selectedPatient?.name} ({selectedPatient?.breed}) para análise clínica.</p>
-
-            <input type="file" accept="image/*" capture="environment" className="hidden" ref={fileInputRef} onChange={handleImageSelect} />
+            <p className="text-xs text-slate-500 mb-6">Tire uma fotografia ou escolha da galeria para avaliar {selectedPatient?.name} ({selectedPatient?.breed}).</p>
 
             {!imagePreview ? (
-              <div onClick={() => fileInputRef.current.click()} className="border-2 border-dashed border-teal-300 bg-teal-50 rounded-3xl p-10 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-teal-100 transition-colors">
-                <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm text-teal-600 mb-4"><Camera size={32} /></div>
-                <h3 className="font-bold text-teal-800">Tirar Fotografia da Lesão</h3>
-                <p className="text-xs text-teal-600/70 mt-1">Aproxime e foque bem a área afectada</p>
+              <div className="flex flex-col gap-4">
+                <label className="border-2 border-dashed border-teal-400 bg-teal-50 rounded-3xl p-8 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-teal-100 transition-colors shadow-sm active:scale-95">
+                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageSelect} />
+                  <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm text-teal-600 mb-3"><Camera size={32} /></div>
+                  <h3 className="font-bold text-teal-800 text-lg">Câmera</h3>
+                  <p className="text-xs text-teal-600/70 mt-1">Tirar foto na hora</p>
+                </label>
+
+                <label className="border-2 border-slate-200 bg-white rounded-3xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50 transition-colors shadow-sm active:scale-95">
+                  <input type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+                  <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 mb-2"><ImageIcon size={24} /></div>
+                  <h3 className="font-bold text-slate-700">Galeria</h3>
+                  <p className="text-xs text-slate-400 mt-1">Escolher foto do celular</p>
+                </label>
               </div>
             ) : (
               <div className="space-y-4">
