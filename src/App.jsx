@@ -71,6 +71,7 @@ export default function App() {
   const [imagePreview, setImagePreview] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiResult, setAiResult] = useState(null);
+  const [scanContext, setScanContext] = useState(''); // NOVO: Contexto Clínico Adicional
   const fileInputRef = useRef(null);
 
   const showToast = (message, type = 'success') => setToast({ message, type });
@@ -128,7 +129,6 @@ export default function App() {
   const formatClinicalText = (text) => {
     if (!text) return null;
     
-    // Divide o texto onde houver '### ' preservando o delimitador para a quebra correcta
     const sections = text.split(/(?=###\s)/);
 
     return sections.map((section, index) => {
@@ -139,14 +139,12 @@ export default function App() {
       let contentLines = lines;
       let isMainSection = false;
 
-      // Se a primeira linha for um título, extrai
       if (lines[0].startsWith('###')) {
         title = lines[0].replace(/###/g, '').trim();
         contentLines = lines.slice(1);
         isMainSection = true;
       }
 
-      // Estilização dinâmica com base no tipo de secção
       let cardColor = "border-slate-200 bg-white";
       let headerColor = "text-slate-700";
       let Icon = Activity;
@@ -185,7 +183,6 @@ export default function App() {
               const isListItem = cleanLine.startsWith('*') && !cleanLine.startsWith('**');
               let lineContent = cleanLine.replace(/^\*\s/, '').trim();
               
-              // Processa negritos (Ex: **Texto:**)
               const parts = lineContent.split(/\*\*(.*?)\*\*/g);
 
               return (
@@ -213,6 +210,7 @@ export default function App() {
       reader.onloadend = () => setImagePreview(reader.result);
       reader.readAsDataURL(file);
       setAiResult(null); 
+      setScanContext(''); // Limpa contexto anterior
     }
   };
 
@@ -238,7 +236,6 @@ export default function App() {
         .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
         .map(m => m.name.replace('models/', ''));
 
-      // AUDITORIA: Prioridade absoluta para a linha PRO
       validModels.sort((a, b) => {
         let scoreA = 0; let scoreB = 0;
         if (a.includes('1.5-pro')) scoreA += 100;
@@ -256,29 +253,35 @@ export default function App() {
       const base64Data = imagePreview.split(',')[1];
       const mimeType = imagePreview.split(';')[0].split(':')[1];
       
-      // PROMPT 'CHAIN OF THOUGHT' (Obriga a IA a pensar passo a passo antes de diagnosticar)
-      const prompt = `Actue EXCLUSIVAMENTE como um Médico Veterinário Especialista em Dermatologia (Nível de Especialidade).
-      Dados do Paciente atual:
+      const contextStr = scanContext.trim() !== '' ? `\n- Anamnese/Sintomas relatados: ${scanContext}` : '\n- Anamnese: Não fornecida. Apenas exame visual.';
+
+      // PROMPT RE-ENGENHADO: Correlação Clínico-Visual Exigida
+      const prompt = `Actue EXCLUSIVAMENTE como um Médico Veterinário Especialista em Dermatologia com vasto conhecimento clínico.
+      
+      DADOS CLÍNICOS DO PACIENTE:
       - Espécie: ${selectedPatient?.species || 'Não informada'}
-      - Raça: ${selectedPatient?.breed || 'Não informada'}
+      - Raça: ${selectedPatient?.breed || 'Não informada'}${contextStr}
       
-      INSTRUÇÕES DE RACIOCÍNIO CLÍNICO (Chain of Thought):
-      1. Primeiro, observe criticamente a imagem, isolando visualmente a lesão do tecido circundante.
-      2. Identifique os padrões morfológicos precisos (pápulas, pústulas, eritema, alopécia focal/difusa, colares epidérmicos, liquenificação, hiperpigmentação).
-      3. Correlacione as observações visuais com a predisposição racial explícita da raça ${selectedPatient?.breed || 'do animal'}.
+      O seu objectivo é fornecer o diagnóstico diferencial MAIS PRECISO possível, não apenas descrever a foto.
       
-      Após este raciocínio, gere o laudo clínico estruturado EXACTAMENTE com estes três títulos em Markdown (NÃO altere nem adicione outros títulos com ###):
+      INSTRUÇÕES DE RACIOCÍNIO (Chain of Thought):
+      1. Se a anamnese mencionar idade jovem e a lesão for um nódulo alopécico circular, considere fortemente Histiocitoma Canino Benigno ou Dermatofitose.
+      2. Se for um nódulo crústico com eritema, considere Piodermite Bacteriana, Demodiciose Localizada ou Mastocitoma.
+      3. CRUZE a apresentação visual estritamente com os sintomas descritos na anamnese (ou a ausência deles). 
+      4. Se a lesão não for compatível com "Alergia a Pulgas", NÃO sugira alergia a pulgas.
+      
+      Gere o laudo clínico estruturado EXACTAMENTE com estes três títulos em Markdown (NÃO adicione outros):
       
       ### DESCRIÇÃO DA LESÃO
-      [Forneça a sua descrição semiológica altamente detalhada e técnica da lesão observada na imagem.]
+      [Descreva os padrões morfológicos primários e secundários (ex: pápula, crosta, alopecia focal, colar epidérmico).]
       
-      ### SUSPEITAS CLÍNICAS
-      [Apresente os 3 diagnósticos diferenciais mais precisos e prováveis. Justifique o motivo clínico de cada um correlacionando rigorosamente com as evidências visuais presentes na foto e com a raça indicada.]
+      ### SUSPEITAS CLÍNICAS (DIAGNÓSTICO DIFERENCIAL)
+      [Liste de 1 a 3 diagnósticos exatos. Seja muito específico (ex: Piodermite estafilocócica, Demodiciose localizada, Histiocitoma cutâneo). Justifique brevemente cada um relacionando o que vê com a anamnese.]
       
       ### RECOMENDAÇÕES E CONDUTA
-      [Liste os exames complementares específicos (ex: raspagem cutânea profunda, citologia por fita cola, cultura fúngica) e indique a abordagem terapêutica preliminar, evitando prescrever antibióticos sistémicos antes de cultura se possível.]
+      [Especifique os exames: Citologia (imprint/punção), Raspagem, ou Cultura. O que fazer primeiro?]
       
-      Restrição: Responda directamente com o laudo médico, sem saudações ou texto adicional. Seja científico.`;
+      Regra de Ouro: Seja direto, puramente científico e não faça saudações.`;
 
       let finalData = null;
       let lastError = "Nenhum modelo compatível encontrado.";
@@ -297,9 +300,8 @@ export default function App() {
                   { inlineData: { mimeType: mimeType, data: base64Data } }
                 ]
               }],
-              // Temperatura aumentada para 0.4 para permitir melhor capacidade de dedução
               generationConfig: {
-                temperature: 0.4
+                temperature: 0.3 // Ajustado para permitir dedução clínica moderada sem alucinação
               }
             })
           });
@@ -340,7 +342,7 @@ export default function App() {
   const saveAiResultToPatient = async () => {
     if (!aiResult || !selectedPatient) return;
     await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'patients', selectedPatient.id, 'cases'), { 
-      description: "Análise Assistida por IA (Dermatologia)",
+      description: `Análise Assistida por IA.\n${scanContext ? 'Sintomas relatados: ' + scanContext : ''}`,
       treatment: aiResult,
       date: serverTimestamp(),
       isAiGenerated: true
@@ -350,6 +352,7 @@ export default function App() {
     setImageFile(null);
     setImagePreview(null);
     setAiResult(null);
+    setScanContext('');
   };
 
   const renderContent = () => {
@@ -479,7 +482,14 @@ export default function App() {
                           {c.date ? new Date(c.date.toMillis()).toLocaleDateString('pt-BR') : 'Data recente'}
                         </div>
                         {c.isAiGenerated ? (
-                          <div className="mt-2 -mx-1">{formatClinicalText(c.treatment)}</div>
+                          <div className="mt-2 -mx-1">
+                            {c.description.includes('Sintomas') && (
+                                <div className="bg-slate-50 p-2 rounded-lg text-xs text-slate-600 mb-3 italic">
+                                    "{c.description.replace('Análise Assistida por IA.\nSintomas relatados: ', '')}"
+                                </div>
+                            )}
+                            {formatClinicalText(c.treatment)}
+                          </div>
                         ) : (
                           <>
                             <p className="text-sm text-slate-700 mb-3 whitespace-pre-wrap">{c.description}</p>
@@ -499,7 +509,7 @@ export default function App() {
         return (
           <div className="p-6 animate-in slide-in-from-bottom duration-300 pb-24">
             <div className="flex items-center justify-between mb-6">
-              <button onClick={() => { setView('patientDetail'); setImagePreview(null); setAiResult(null); }} className="flex items-center gap-1 text-slate-500 font-bold"><ChevronLeft /> Voltar</button>
+              <button onClick={() => { setView('patientDetail'); setImagePreview(null); setAiResult(null); setScanContext(''); }} className="flex items-center gap-1 text-slate-500 font-bold"><ChevronLeft /> Voltar</button>
               <div className="bg-teal-100 text-teal-800 text-[10px] font-black px-3 py-1 rounded-full uppercase flex items-center gap-1"><BrainCircuit size={12}/> Scanner IA</div>
             </div>
 
@@ -521,20 +531,32 @@ export default function App() {
                   {isAnalyzing && (
                     <div className="absolute inset-0 scanner-line bg-gradient-to-b from-transparent via-teal-400/50 to-transparent"></div>
                   )}
-                  <button onClick={() => { setImagePreview(null); setAiResult(null); }} className="absolute top-3 right-3 bg-white/20 backdrop-blur-md p-2 rounded-full text-white"><X size={20}/></button>
+                  <button onClick={() => { setImagePreview(null); setAiResult(null); setScanContext(''); }} className="absolute top-3 right-3 bg-white/20 backdrop-blur-md p-2 rounded-full text-white"><X size={20}/></button>
                 </div>
 
                 {!aiResult && !isAnalyzing && (
-                  <button onClick={analyzeImage} className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl shadow-xl active:scale-95 transition-transform flex items-center justify-center gap-2 text-lg">
-                    <ScanLine size={20}/> Gerar Laudo Clínico
-                  </button>
+                  <div className="animate-in fade-in slide-in-from-bottom-2">
+                    <div className="mb-4">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-1 flex items-center gap-1"><Stethoscope size={12}/> Anamnese Breve (Opcional)</label>
+                        <textarea 
+                            className="w-full mt-1 p-3 bg-white rounded-xl outline-none border border-slate-200 focus:ring-2 focus:ring-teal-500 text-sm shadow-sm transition-all" 
+                            placeholder="Ex: Animal tem 5 meses. Lesão cresceu rápido. Não tem prurido." 
+                            value={scanContext} 
+                            onChange={e => setScanContext(e.target.value)} 
+                            rows="2"
+                        />
+                    </div>
+                    <button onClick={analyzeImage} className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl shadow-xl active:scale-95 transition-transform flex items-center justify-center gap-2 text-lg">
+                        <ScanLine size={20}/> Gerar Laudo Clínico
+                    </button>
+                  </div>
                 )}
 
                 {isAnalyzing && (
                   <div className="text-center p-6 text-teal-600 font-bold animate-pulse flex flex-col items-center justify-center">
                     <BrainCircuit size={32} className="mx-auto mb-3 animate-bounce" />
-                    <p>A processar imagem em modo avançado...</p>
-                    <p className="text-xs opacity-70 mt-1">A analisar patologias de {selectedPatient?.species} - {selectedPatient?.breed}</p>
+                    <p>A cruzar evidências visuais com anamnese...</p>
+                    <p className="text-xs opacity-70 mt-1">A elaborar hipóteses diagnósticas.</p>
                   </div>
                 )}
 
