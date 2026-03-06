@@ -4,7 +4,8 @@ import {
   Search, Stethoscope, Save, Trash2, Clock, Image as ImageIcon,
   Folder, FolderOpen, FolderPlus, X, Pill, Microscope, Printer, Edit3,
   MessageCircle, ArrowRight, Lock, Star, CheckCircle, Upload,
-  Settings, LogOut, Bell, HelpCircle, LayoutGrid, Zap, ShieldCheck, FileText, Calendar, ScanLine, BrainCircuit
+  Settings, LogOut, Bell, HelpCircle, LayoutGrid, Zap, ShieldCheck, FileText, Calendar, ScanLine, BrainCircuit,
+  ClipboardList
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
@@ -123,35 +124,80 @@ export default function App() {
     }
   };
 
-  // --- TRADUTOR DE MARKDOWN PARA UI CLÍNICA ---
+  // --- NOVO TRADUTOR UI CLÍNICA (SISTEMA DE CARDS PREMIUM) ---
   const formatClinicalText = (text) => {
     if (!text) return null;
-    return text.split('\n').map((line, index) => {
-      const cleanLine = line.trim();
-      if (cleanLine === '') return <div key={index} className="h-2"></div>;
-      
-      // Títulos
-      if (cleanLine.startsWith('###')) {
-        return (
-          <h4 key={index} className="font-black text-teal-800 mt-5 mb-3 text-[13px] uppercase tracking-wider border-b-2 border-teal-100/60 pb-1.5 flex items-center gap-2">
-            <Activity size={16} className="text-teal-500"/>
-            {cleanLine.replace(/###/g, '').replace(/\[|\]/g, '').trim()}
-          </h4>
-        );
+    
+    // Divide o texto onde houver '### ' preservando o delimitador para a quebra correta
+    const sections = text.split(/(?=###\s)/);
+
+    return sections.map((section, index) => {
+      if (!section.trim()) return null;
+
+      const lines = section.trim().split('\n');
+      let title = "DETALHES CLÍNICOS";
+      let contentLines = lines;
+      let isMainSection = false;
+
+      // Se a primeira linha for um título, extrai
+      if (lines[0].startsWith('###')) {
+        title = lines[0].replace(/###/g, '').trim();
+        contentLines = lines.slice(1);
+        isMainSection = true;
       }
-      
-      const isListItem = cleanLine.startsWith('*') && !cleanLine.startsWith('**');
-      let lineContent = cleanLine.replace(/^\*\s/, '').trim();
-      
-      // Processa negritos (Ex: **Texto:**)
-      const parts = lineContent.split(/\*\*(.*?)\*\*/g);
-      
+
+      // Estilização dinâmica com base no tipo de seção
+      let cardColor = "border-slate-200 bg-white";
+      let headerColor = "text-slate-700";
+      let Icon = Activity;
+
+      const upperTitle = title.toUpperCase();
+      if (upperTitle.includes('DESCRIÇÃO')) {
+        cardColor = "border-blue-200 bg-blue-50/50 shadow-blue-900/5";
+        headerColor = "text-blue-800";
+        Icon = Microscope;
+      } else if (upperTitle.includes('SUSPEITA') || upperTitle.includes('DIAGNÓSTICO')) {
+        cardColor = "border-amber-200 bg-amber-50/50 shadow-amber-900/5";
+        headerColor = "text-amber-800";
+        Icon = AlertTriangle;
+      } else if (upperTitle.includes('RECOMENDAÇÃO') || upperTitle.includes('CONDUTA')) {
+        cardColor = "border-emerald-200 bg-emerald-50/50 shadow-emerald-900/5";
+        headerColor = "text-emerald-800";
+        Icon = Pill;
+      }
+
       return (
-        <div key={index} className={`flex text-[13px] text-slate-700 leading-relaxed mb-1.5 ${isListItem ? 'ml-2' : ''}`}>
-           {isListItem && <div className="text-teal-500 font-bold mr-2 mt-0.5">•</div>}
-           <div className="flex-1">
-             {parts.map((part, i) => i % 2 === 1 ? <strong key={i} className="text-slate-900 font-bold">{part}</strong> : part)}
-           </div>
+        <div key={index} className={`mb-4 rounded-2xl border ${cardColor} p-4 shadow-sm relative overflow-hidden transition-all duration-300 hover:shadow-md`}>
+          {isMainSection && (
+            <div className={`flex items-center gap-2 mb-3 pb-3 border-b border-slate-900/5 ${headerColor}`}>
+              <div className="p-1.5 rounded-lg bg-white/60 shadow-sm">
+                <Icon size={18} strokeWidth={2.5} />
+              </div>
+              <h4 className="font-black text-[12px] uppercase tracking-widest">{title}</h4>
+            </div>
+          )}
+          
+          <div className="space-y-2">
+            {contentLines.map((line, i) => {
+              const cleanLine = line.trim();
+              if (!cleanLine) return <div key={i} className="h-1"></div>;
+
+              const isListItem = cleanLine.startsWith('*') && !cleanLine.startsWith('**');
+              let lineContent = cleanLine.replace(/^\*\s/, '').trim();
+              
+              // Processa negritos (Ex: **Texto:**)
+              const parts = lineContent.split(/\*\*(.*?)\*\*/g);
+
+              return (
+                <div key={i} className={`flex text-[13px] text-slate-700 leading-relaxed ${isListItem ? 'ml-1' : ''}`}>
+                  {isListItem && <div className={`${headerColor} opacity-70 font-black mr-2 mt-0.5`}>•</div>}
+                  <div className="flex-1">
+                    {parts.map((part, pIndex) => pIndex % 2 === 1 ? <strong key={pIndex} className="text-slate-900 font-extrabold">{part}</strong> : part)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       );
     });
@@ -218,7 +264,7 @@ export default function App() {
       ### RECOMENDAÇÕES E CONDUTA
       Especifique os exames complementares exatos necessários para fechar o diagnóstico (ex: Tricograma, Citologia por fita/imprint/swab, Raspado cutâneo profundo/superficial, Cultura fúngica/bacteriana, Biópsia). Sugira manejo tópico paliativo inicial seguro, se aplicável, ressaltando a necessidade de exames antes de antibioticoterapia sistêmica.
       
-      Restrição: Responda apenas com dados médicos. Não use saudações. Seja direto, científico e baseie-se na literatura veterinária atual.`;
+      Restrição: Responda apenas com dados médicos. Não use saudações. Seja direto, científico e baseie-se na literatura veterinária atual. Pule linhas entre os tópicos para melhor formatação visual.`;
 
       let finalData = null;
       let lastError = "Nenhum modelo compatível encontrado.";
@@ -237,7 +283,6 @@ export default function App() {
                   { inlineData: { mimeType: mimeType, data: base64Data } }
                 ]
               }],
-              // Ajuste sutil na temperatura: 0.2 permite um pouco mais de correlação médica sem alucinar
               generationConfig: {
                 temperature: 0.2
               }
@@ -414,12 +459,12 @@ export default function App() {
                     cases.map(c => (
                       <div key={c.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
                         {c.isAiGenerated && <div className="absolute top-0 right-0 bg-teal-500 text-white text-[9px] font-black px-3 py-1 rounded-bl-xl uppercase tracking-widest flex items-center gap-1"><BrainCircuit size={10}/> Laudo IA</div>}
-                        <div className="flex items-center gap-2 mb-3 text-xs font-bold text-slate-400 uppercase">
+                        <div className="flex items-center gap-2 mb-4 text-xs font-bold text-slate-400 uppercase">
                           <Calendar size={14} />
                           {c.date ? new Date(c.date.toMillis()).toLocaleDateString('pt-BR') : 'Data recente'}
                         </div>
                         {c.isAiGenerated ? (
-                          <div className="mt-2">{formatClinicalText(c.treatment)}</div>
+                          <div className="mt-2 -mx-1">{formatClinicalText(c.treatment)}</div>
                         ) : (
                           <>
                             <p className="text-sm text-slate-700 mb-3 whitespace-pre-wrap">{c.description}</p>
@@ -479,18 +524,21 @@ export default function App() {
                 )}
 
                 {aiResult && (
-                  <div className="bg-white p-5 rounded-2xl border border-teal-200 shadow-lg animate-in fade-in">
-                    <div className="bg-teal-50 -m-5 mb-4 p-4 rounded-t-2xl border-b border-teal-100 flex items-center gap-2">
-                      <CheckCircle size={20} className="text-teal-600"/> 
-                      <h3 className="font-black text-teal-800">Laudo Concluído</h3>
+                  <div className="bg-slate-100 p-3 rounded-3xl border border-slate-200 shadow-inner animate-in fade-in">
+                    <div className="bg-teal-600 text-white mb-3 p-4 rounded-2xl shadow-sm flex items-center gap-3">
+                      <ClipboardList size={24} className="opacity-90"/> 
+                      <div>
+                        <h3 className="font-black text-lg leading-none">Laudo Concluído</h3>
+                        <p className="text-[10px] text-teal-100 uppercase tracking-wider mt-1">Vet Derma Pro IA</p>
+                      </div>
                     </div>
                     
-                    <div className="max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
+                    <div className="max-h-[65vh] overflow-y-auto pr-1 custom-scrollbar">
                       {formatClinicalText(aiResult)}
                     </div>
                     
-                    <button onClick={saveAiResultToPatient} className="w-full mt-6 py-4 bg-teal-600 text-white font-bold rounded-xl shadow-md active:scale-95 transition-transform flex items-center justify-center gap-2">
-                      <Save size={18}/> Guardar no Prontuário
+                    <button onClick={saveAiResultToPatient} className="w-full mt-4 py-4 bg-teal-600 text-white font-black text-lg rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2 border-b-4 border-teal-800">
+                      <Save size={20}/> Guardar no Prontuário
                     </button>
                   </div>
                 )}
