@@ -84,7 +84,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Monitor de Assinatura
+  // 2. Monitor de Subscrição
   useEffect(() => {
     if (!user) return;
     const subRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'subscription');
@@ -105,7 +105,7 @@ export default function App() {
     });
   }, [user]);
 
-  // 4. Monitor de Prontuários do Paciente
+  // 4. Monitor de Fichas Clínicas (Casos) do Paciente
   useEffect(() => {
     if (!user || !selectedPatient) return;
     const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'patients', selectedPatient.id, 'cases'));
@@ -124,11 +124,11 @@ export default function App() {
     }
   };
 
-  // --- NOVO TRADUTOR UI CLÍNICA (SISTEMA DE CARDS PREMIUM) ---
+  // --- TRADUTOR DE MARKDOWN PARA UI CLÍNICA ---
   const formatClinicalText = (text) => {
     if (!text) return null;
     
-    // Divide o texto onde houver '### ' preservando o delimitador para a quebra correta
+    // Divide o texto onde houver '### ' preservando o delimitador para a quebra correcta
     const sections = text.split(/(?=###\s)/);
 
     return sections.map((section, index) => {
@@ -146,7 +146,7 @@ export default function App() {
         isMainSection = true;
       }
 
-      // Estilização dinâmica com base no tipo de seção
+      // Estilização dinâmica com base no tipo de secção
       let cardColor = "border-slate-200 bg-white";
       let headerColor = "text-slate-700";
       let Icon = Activity;
@@ -217,7 +217,7 @@ export default function App() {
   };
 
   const analyzeImage = async () => {
-    if (!imageFile) return showToast("Por favor, tire ou seleccione uma foto.", "error");
+    if (!imageFile) return showToast("Por favor, tire ou seleccione uma fotografia.", "error");
     if (!geminiApiKey) return showToast("Chave da IA não encontrada.", "error");
     
     if (!subscription.isPremium && subscription.usage >= 50) {
@@ -238,7 +238,7 @@ export default function App() {
         .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
         .map(m => m.name.replace('models/', ''));
 
-      // AUDITORIA: Prioridade absoluta para a linha PRO (Mais inteligente, melhor raciocínio clínico)
+      // AUDITORIA: Prioridade absoluta para a linha PRO
       validModels.sort((a, b) => {
         let scoreA = 0; let scoreB = 0;
         if (a.includes('1.5-pro')) scoreA += 100;
@@ -256,28 +256,29 @@ export default function App() {
       const base64Data = imagePreview.split(',')[1];
       const mimeType = imagePreview.split(';')[0].split(':')[1];
       
-      // PROMPT CLÍNICO 'GOLD MASTER' (Camisa de força de precisão)
-      const prompt = `Você é um algoritmo de IA avançado de nível 'Gold Master', treinado com os melhores compêndios de Dermatologia Veterinária. Seu papel é atuar como um Médico Veterinário Especialista em Dermatologia.
-      
-      Paciente atual:
+      // PROMPT 'CHAIN OF THOUGHT' (Obriga a IA a pensar passo a passo antes de diagnosticar)
+      const prompt = `Actue EXCLUSIVAMENTE como um Médico Veterinário Especialista em Dermatologia (Nível de Especialidade).
+      Dados do Paciente atual:
       - Espécie: ${selectedPatient?.species || 'Não informada'}
       - Raça: ${selectedPatient?.breed || 'Não informada'}
       
-      INSTRUÇÕES RÍGIDAS DE ANÁLISE:
-      1. Foque a sua análise rigorosamente no que é visível na foto. 
-      2. Baseie os seus diagnósticos diferenciais na apresentação clínica da imagem e na predisposição racial do paciente.
-      3. Não ofereça hipóteses leigas ou óbvias que não condizem com a aparência da lesão.
+      INSTRUÇÕES DE RACIOCÍNIO CLÍNICO (Chain of Thought):
+      1. Primeiro, observe criticamente a imagem, isolando visualmente a lesão do tecido circundante.
+      2. Identifique os padrões morfológicos precisos (pápulas, pústulas, eritema, alopécia focal/difusa, colares epidérmicos, liquenificação, hiperpigmentação).
+      3. Correlacione as observações visuais com a predisposição racial explícita da raça ${selectedPatient?.breed || 'do animal'}.
       
-      Gere a saída EXATAMENTE com estes três títulos em Markdown (NÃO altere os nomes):
+      Após este raciocínio, gere o laudo clínico estruturado EXACTAMENTE com estes três títulos em Markdown (NÃO altere nem adicione outros títulos com ###):
       
       ### DESCRIÇÃO DA LESÃO
-      [Forneça uma descrição semiológica detalhada: tipo morfológico (mácula, pápula, crosta, etc.), bordas, exsudato, alopecia, eritema.]
+      [Forneça a sua descrição semiológica altamente detalhada e técnica da lesão observada na imagem.]
       
       ### SUSPEITAS CLÍNICAS
-      [Liste os 3 diagnósticos diferenciais mais precisos para esta apresentação específica (ex: Piodermite, Demodiciose, Malasseziose, Esporotricose, Neoplasia). Justifique CLINICAMENTE cada um relacionando ao que você vê na imagem.]
+      [Apresente os 3 diagnósticos diferenciais mais precisos e prováveis. Justifique o motivo clínico de cada um correlacionando rigorosamente com as evidências visuais presentes na foto e com a raça indicada.]
       
       ### RECOMENDAÇÕES E CONDUTA
-      [Sugira os exames complementares exatos que um especialista solicitaria (Citologia, Cultura, Raspado cutâneo) e indique a abordagem terapêutica preliminar padrão-ouro.]`;
+      [Liste os exames complementares específicos (ex: raspagem cutânea profunda, citologia por fita cola, cultura fúngica) e indique a abordagem terapêutica preliminar, evitando prescrever antibióticos sistémicos antes de cultura se possível.]
+      
+      Restrição: Responda directamente com o laudo médico, sem saudações ou texto adicional. Seja científico.`;
 
       let finalData = null;
       let lastError = "Nenhum modelo compatível encontrado.";
@@ -296,9 +297,9 @@ export default function App() {
                   { inlineData: { mimeType: mimeType, data: base64Data } }
                 ]
               }],
-              // Temperatura em 0.1 para forçar altíssima precisão e evitar "alucinações" (chutes ruins)
+              // Temperatura aumentada para 0.4 para permitir melhor capacidade de dedução
               generationConfig: {
-                temperature: 0.1
+                temperature: 0.4
               }
             })
           });
@@ -344,7 +345,7 @@ export default function App() {
       date: serverTimestamp(),
       isAiGenerated: true
     });
-    showToast("Laudo clínico salvo no prontuário!");
+    showToast("Laudo clínico guardado na ficha!");
     setView('patientDetail');
     setImageFile(null);
     setImagePreview(null);
@@ -361,12 +362,12 @@ export default function App() {
               <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest">{subscription.isPremium ? 'Membro Premium' : 'Plano de Avaliação'}</p>
               <div className="mt-6 relative">
                 <Search className="absolute left-3 top-3.5 text-teal-300" size={18} />
-                <input className="w-full bg-teal-800/50 border border-teal-600 rounded-xl py-3 pl-10 text-white placeholder-teal-300 outline-none" placeholder="Buscar paciente..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                <input className="w-full bg-teal-800/50 border border-teal-600 rounded-xl py-3 pl-10 text-white placeholder-teal-300 outline-none" placeholder="Pesquisar paciente..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
               </div>
             </div>
             <div className="p-6">
               <div className="flex justify-between items-center mb-4 text-slate-800">
-                <h2 className="font-bold text-lg">Prontuários Ativos</h2>
+                <h2 className="font-bold text-lg">Fichas Clínicas Ativas</h2>
                 <button onClick={() => setView('newPatient')} className="p-3 bg-slate-900 text-white rounded-full shadow-lg active:scale-90 transition-transform"><Plus size={20}/></button>
               </div>
               <div className="space-y-3">
@@ -376,7 +377,7 @@ export default function App() {
                       <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl ${p.species === 'Gato' ? 'bg-orange-50 text-orange-500' : 'bg-teal-50 text-teal-600'}`}>{p.species === 'Gato' ? '🐱' : '🐶'}</div>
                       <div>
                         <h3 className="font-bold text-slate-800 text-base">{p.name}</h3>
-                        <p className="text-xs text-slate-400 font-medium">{p.breed} • Tutor(a): {p.owner}</p>
+                        <p className="text-xs text-slate-400 font-medium">{p.breed} • Dono: {p.owner}</p>
                       </div>
                     </div>
                     <ChevronRight size={20} className="text-slate-300" />
@@ -385,7 +386,7 @@ export default function App() {
                 {patients.length === 0 && (
                   <div className="text-center p-8 text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl">
                     <FolderOpen size={48} className="mx-auto mb-3 opacity-50" />
-                    <p className="font-medium">Nenhum paciente cadastrado</p>
+                    <p className="font-medium">Nenhum paciente registado</p>
                   </div>
                 )}
               </div>
@@ -398,7 +399,7 @@ export default function App() {
           <div className="p-6 animate-in slide-in-from-right duration-300">
             <button onClick={() => setView('dashboard')} className="mb-6 flex items-center gap-1 text-slate-500 font-bold"><ChevronLeft /> Voltar</button>
             <div className="bg-white p-6 rounded-3xl space-y-5 shadow-sm border border-slate-100">
-              <h2 className="text-xl font-bold text-slate-800 mb-2">Novo Cadastro</h2>
+              <h2 className="text-xl font-bold text-slate-800 mb-2">Novo Registo</h2>
               <div>
                 <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Nome do Paciente</label>
                 <input className="w-full mt-1 p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:ring-2 focus:ring-teal-500" placeholder="Ex: Rex" value={newPatientData.name} onChange={e => setNewPatientData({...newPatientData, name: e.target.value})} />
@@ -414,7 +415,7 @@ export default function App() {
                 </div>
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Tutor(a)</label>
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Dono / Tutor(a)</label>
                 <input className="w-full mt-1 p-4 bg-slate-50 rounded-xl outline-none border border-slate-100 focus:ring-2 focus:ring-teal-500" placeholder="Nome Completo" value={newPatientData.owner} onChange={e => setNewPatientData({...newPatientData, owner: e.target.value})} />
               </div>
               <button onClick={async () => {
@@ -422,8 +423,8 @@ export default function App() {
                 await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'patients'), { ...newPatientData, createdAt: serverTimestamp() });
                 setNewPatientData({ name: '', species: 'Cão', breed: '', owner: '' });
                 setView('dashboard');
-                showToast("Paciente cadastrado!");
-              }} className="w-full py-4 mt-4 bg-teal-600 text-white font-bold rounded-2xl shadow-xl active:scale-95 transition-all text-lg">Salvar Paciente</button>
+                showToast("Paciente registado!");
+              }} className="w-full py-4 mt-4 bg-teal-600 text-white font-bold rounded-2xl shadow-xl active:scale-95 transition-all text-lg">Guardar Paciente</button>
             </div>
           </div>
         );
@@ -451,13 +452,13 @@ export default function App() {
                   <div className="bg-white/20 p-3 rounded-xl"><BrainCircuit size={28} className="text-white" /></div>
                   <div className="text-left flex-1">
                     <h3 className="font-black text-lg leading-tight shadow-sm">Analisar com IA</h3>
-                    <p className="text-xs font-medium text-teal-100 mt-1">Identifique lesões usando foto</p>
+                    <p className="text-xs font-medium text-teal-100 mt-1">Identificar lesões por fotografia</p>
                   </div>
                   <ChevronRight size={24} className="text-teal-200"/>
                 </button>
 
                 <div className="flex justify-between items-center mb-6">
-                  <h2 className="font-bold text-lg text-slate-800 flex items-center gap-2"><FileText size={20} className="text-teal-600"/> Histórico Clínico</h2>
+                  <h2 className="font-bold text-lg text-slate-800 flex items-center gap-2"><FileText size={20} className="text-teal-600"/> Historial Clínico</h2>
                   <button onClick={() => setView('newCase')} className="flex items-center gap-1 px-4 py-2 bg-teal-50 text-teal-700 font-bold rounded-xl text-sm active:bg-teal-100 transition-colors">
                     <Plus size={16}/> Consulta Manual
                   </button>
@@ -503,14 +504,14 @@ export default function App() {
             </div>
 
             <h2 className="text-2xl font-black text-slate-800 mb-1">Análise Dermatológica</h2>
-            <p className="text-xs text-slate-500 mb-6">Tire uma foto clara da lesão de {selectedPatient?.name} ({selectedPatient?.breed}) para análise clínica.</p>
+            <p className="text-xs text-slate-500 mb-6">Tire uma fotografia clara da lesão de {selectedPatient?.name} ({selectedPatient?.breed}) para análise clínica.</p>
 
             <input type="file" accept="image/*" capture="environment" className="hidden" ref={fileInputRef} onChange={handleImageSelect} />
 
             {!imagePreview ? (
               <div onClick={() => fileInputRef.current.click()} className="border-2 border-dashed border-teal-300 bg-teal-50 rounded-3xl p-10 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-teal-100 transition-colors">
                 <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm text-teal-600 mb-4"><Camera size={32} /></div>
-                <h3 className="font-bold text-teal-800">Tirar Foto da Lesão</h3>
+                <h3 className="font-bold text-teal-800">Tirar Fotografia da Lesão</h3>
                 <p className="text-xs text-teal-600/70 mt-1">Aproxime e foque bem a área afectada</p>
               </div>
             ) : (
@@ -532,7 +533,7 @@ export default function App() {
                 {isAnalyzing && (
                   <div className="text-center p-6 text-teal-600 font-bold animate-pulse flex flex-col items-center justify-center">
                     <BrainCircuit size={32} className="mx-auto mb-3 animate-bounce" />
-                    <p>A processar imagem em modo de alta precisão...</p>
+                    <p>A processar imagem em modo avançado...</p>
                     <p className="text-xs opacity-70 mt-1">A analisar patologias de {selectedPatient?.species} - {selectedPatient?.breed}</p>
                   </div>
                 )}
@@ -552,7 +553,7 @@ export default function App() {
                     </div>
                     
                     <button onClick={saveAiResultToPatient} className="w-full mt-4 py-4 bg-teal-600 text-white font-black text-lg rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2 border-b-4 border-teal-800">
-                      <Save size={20}/> Guardar no Prontuário
+                      <Save size={20}/> Guardar na Ficha Clínica
                     </button>
                   </div>
                 )}
@@ -579,9 +580,9 @@ export default function App() {
                   });
                   setNewCaseData({ description: '', diagnosis: '', treatment: '' });
                   setView('patientDetail');
-                  showToast("Evolução salva!");
+                  showToast("Evolução guardada!");
                 }} className="w-full py-4 bg-teal-600 text-white font-bold rounded-2xl shadow-xl active:scale-95 transition-all text-lg flex justify-center items-center gap-2">
-                  <Save size={20}/> Salvar Evolução
+                  <Save size={20}/> Guardar Evolução
                 </button>
               </div>
             </div>
@@ -593,7 +594,7 @@ export default function App() {
           <div className="p-6 animate-in slide-in-from-bottom duration-300">
              <div className="flex items-center gap-2 mb-6">
                 <button onClick={() => setView('dashboard')} className="p-2 -ml-2 text-slate-800"><ChevronLeft size={24}/></button>
-                <h1 className="font-black text-xl tracking-tight text-slate-800">Minha Clínica</h1>
+                <h1 className="font-black text-xl tracking-tight text-slate-800">A Minha Clínica</h1>
             </div>
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
               <div className="flex items-center gap-4 mb-8">
@@ -601,17 +602,17 @@ export default function App() {
                 <div><h3 className="font-bold text-slate-800 text-lg leading-tight">Dr. Cimirro</h3><p className="text-[10px] font-mono text-slate-400 mt-1 truncate w-40">ID: {user?.uid}</p></div>
               </div>
               <div className={`p-5 rounded-2xl border mb-8 ${subscription.isPremium ? 'bg-teal-50 border-teal-100' : 'bg-slate-50 border-slate-100'}`}>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Assinatura</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Subscrição</p>
                 <p className={`text-2xl font-black ${subscription.isPremium ? 'text-teal-700' : 'text-slate-800'}`}>{subscription.isPremium ? 'PRO Ilimitado' : 'Versão Trial'}</p>
                 {!subscription.isPremium && <p className="text-xs text-slate-500 mt-1">Créditos de IA consumidos: {subscription.usage}/50</p>}
               </div>
               {!subscription.isPremium && (
                 <button onClick={handleRedirectToStripe} className="w-full py-5 bg-slate-900 text-white font-bold rounded-2xl shadow-2xl active:scale-95 transition-transform flex items-center justify-center gap-2 text-lg text-center">
-                  <Star className="fill-yellow-400 text-yellow-400" size={20} /> Upgrade PRO - R$ 49,90
+                  <Star className="fill-yellow-400 text-yellow-400" size={20} /> Actualizar para PRO - R$ 49,90
                 </button>
               )}
             </div>
-            <button onClick={() => auth.signOut()} className="w-full mt-6 p-4 text-red-600 font-bold flex items-center justify-center gap-2 hover:bg-red-50 rounded-2xl transition-colors"><LogOut size={20}/> Sair da Conta</button>
+            <button onClick={() => auth.signOut()} className="w-full mt-6 p-4 text-red-600 font-bold flex items-center justify-center gap-2 hover:bg-red-50 rounded-2xl transition-colors"><LogOut size={20}/> Terminar Sessão</button>
           </div>
         );
       default: return null;
@@ -641,11 +642,11 @@ export default function App() {
         <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/90 backdrop-blur-lg border-t border-slate-100 flex justify-around py-3 px-6 pb-10 z-50 shadow-lg">
           <button onClick={() => setView('dashboard')} className={`flex flex-col items-center gap-1.5 p-2 transition-all ${view === 'dashboard' ? 'text-teal-600' : 'text-slate-400'}`}>
             <LayoutGrid size={24} />
-            <p className="text-[10px] font-black uppercase tracking-tighter">Dashboard</p>
+            <p className="text-[10px] font-black uppercase tracking-tighter">Início</p>
           </button>
           <button onClick={() => setView('settings')} className={`flex flex-col items-center gap-1.5 p-2 transition-all ${view === 'settings' ? 'text-teal-600' : 'text-slate-400'}`}>
             <Settings size={24} />
-            <p className="text-[10px] font-black uppercase tracking-tighter">Ajustes</p>
+            <p className="text-[10px] font-black uppercase tracking-tighter">Definições</p>
           </button>
         </div>
       )}
