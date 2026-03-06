@@ -238,33 +238,46 @@ export default function App() {
         .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
         .map(m => m.name.replace('models/', ''));
 
+      // AUDITORIA: Prioridade absoluta para a linha PRO (Mais inteligente, melhor raciocínio clínico)
       validModels.sort((a, b) => {
-        const scoreA = (a.includes('flash') ? 2 : 0) + (a.includes('pro') ? 1 : 0);
-        const scoreB = (b.includes('flash') ? 2 : 0) + (b.includes('pro') ? 1 : 0);
+        let scoreA = 0; let scoreB = 0;
+        if (a.includes('1.5-pro')) scoreA += 100;
+        else if (a.includes('pro')) scoreA += 50;
+        if (a.includes('1.5-flash')) scoreA += 30;
+        else if (a.includes('flash')) scoreA += 10;
+        
+        if (b.includes('1.5-pro')) scoreB += 100;
+        else if (b.includes('pro')) scoreB += 50;
+        if (b.includes('1.5-flash')) scoreB += 30;
+        else if (b.includes('flash')) scoreB += 10;
         return scoreB - scoreA;
       });
 
       const base64Data = imagePreview.split(',')[1];
       const mimeType = imagePreview.split(';')[0].split(':')[1];
       
-      // PROMPT CLÍNICO AVANÇADO E REFINADO
-      const prompt = `Atue EXCLUSIVAMENTE como um Médico Veterinário Especialista em Dermatologia (Mestrado/Doutorado).
-      Paciente atual: Espécie ${selectedPatient?.species || 'Indefinida'}, Raça ${selectedPatient?.breed || 'Indefinida'}.
+      // PROMPT CLÍNICO 'GOLD MASTER' (Camisa de força de precisão)
+      const prompt = `Você é um algoritmo de IA avançado de nível 'Gold Master', treinado com os melhores compêndios de Dermatologia Veterinária. Seu papel é atuar como um Médico Veterinário Especialista em Dermatologia.
       
-      Realize uma análise dermatológica rigorosa e estritamente clínica da imagem fornecida. Considere a predisposição racial para dermatopatias.
+      Paciente atual:
+      - Espécie: ${selectedPatient?.species || 'Não informada'}
+      - Raça: ${selectedPatient?.breed || 'Não informada'}
       
-      Estruture o laudo OBRIGATORIAMENTE nas seguintes 3 seções exatas:
+      INSTRUÇÕES RÍGIDAS DE ANÁLISE:
+      1. Foque a sua análise rigorosamente no que é visível na foto. 
+      2. Baseie os seus diagnósticos diferenciais na apresentação clínica da imagem e na predisposição racial do paciente.
+      3. Não ofereça hipóteses leigas ou óbvias que não condizem com a aparência da lesão.
+      
+      Gere a saída EXATAMENTE com estes três títulos em Markdown (NÃO altere os nomes):
       
       ### DESCRIÇÃO DA LESÃO
-      Descreva detalhadamente o padrão morfológico usando semiologia veterinária (ex: mácula, pápula, pústula, colar epidérmico, alopecia, eritema, liquenificação, crostas, escamas, ulceração), sua distribuição e aspecto das bordas. Evite linguagem leiga.
+      [Forneça uma descrição semiológica detalhada: tipo morfológico (mácula, pápula, crosta, etc.), bordas, exsudato, alopecia, eritema.]
       
       ### SUSPEITAS CLÍNICAS
-      Liste os 3 principais diagnósticos diferenciais dermatológicos em ordem de probabilidade (ex: Piodermite bacteriana superficial/profunda, Dermatofitose, Demodiciose, Malasseziose, DAPP, Dermatite Atópica, Neoplasia cutânea, etc.). Justifique tecnicamente com base nos achados visuais e na raça.
+      [Liste os 3 diagnósticos diferenciais mais precisos para esta apresentação específica (ex: Piodermite, Demodiciose, Malasseziose, Esporotricose, Neoplasia). Justifique CLINICAMENTE cada um relacionando ao que você vê na imagem.]
       
       ### RECOMENDAÇÕES E CONDUTA
-      Especifique os exames complementares exatos necessários para fechar o diagnóstico (ex: Tricograma, Citologia por fita/imprint/swab, Raspado cutâneo profundo/superficial, Cultura fúngica/bacteriana, Biópsia). Sugira manejo tópico paliativo inicial seguro, se aplicável, ressaltando a necessidade de exames antes de antibioticoterapia sistêmica.
-      
-      Restrição: Responda apenas com dados médicos. Não use saudações. Seja direto, científico e baseie-se na literatura veterinária atual. Pule linhas entre os tópicos para melhor formatação visual.`;
+      [Sugira os exames complementares exatos que um especialista solicitaria (Citologia, Cultura, Raspado cutâneo) e indique a abordagem terapêutica preliminar padrão-ouro.]`;
 
       let finalData = null;
       let lastError = "Nenhum modelo compatível encontrado.";
@@ -283,8 +296,9 @@ export default function App() {
                   { inlineData: { mimeType: mimeType, data: base64Data } }
                 ]
               }],
+              // Temperatura em 0.1 para forçar altíssima precisão e evitar "alucinações" (chutes ruins)
               generationConfig: {
-                temperature: 0.2
+                temperature: 0.1
               }
             })
           });
@@ -518,8 +532,8 @@ export default function App() {
                 {isAnalyzing && (
                   <div className="text-center p-6 text-teal-600 font-bold animate-pulse flex flex-col items-center justify-center">
                     <BrainCircuit size={32} className="mx-auto mb-3 animate-bounce" />
-                    <p>A cruzar dados clínicos da raça {selectedPatient?.breed}...</p>
-                    <p className="text-xs opacity-70 mt-1">Identificando padrões dermatológicos</p>
+                    <p>A processar imagem em modo de alta precisão...</p>
+                    <p className="text-xs opacity-70 mt-1">A analisar patologias de {selectedPatient?.species} - {selectedPatient?.breed}</p>
                   </div>
                 )}
 
@@ -529,7 +543,7 @@ export default function App() {
                       <ClipboardList size={24} className="opacity-90"/> 
                       <div>
                         <h3 className="font-black text-lg leading-none">Laudo Concluído</h3>
-                        <p className="text-[10px] text-teal-100 uppercase tracking-wider mt-1">Vet Derma Pro IA</p>
+                        <p className="text-[10px] text-teal-100 uppercase tracking-wider mt-1">Vet Derma Pro IA Especialista</p>
                       </div>
                     </div>
                     
