@@ -174,7 +174,8 @@ export default function App() {
     if (!imageFile) return showToast("Por favor, tire ou seleccione uma foto.", "error");
     if (!geminiApiKey) return showToast("Chave da IA não encontrada.", "error");
     
-    if (!subscription.isPremium && subscription.usage >= 1) {
+    // AUMENTADO PARA 50 PARA TESTES DO AUDITOR
+    if (!subscription.isPremium && subscription.usage >= 50) {
       showToast("Atingiu o limite do plano gratuito.", "error");
       setTimeout(() => setView('settings'), 2000);
       return;
@@ -540,7 +541,7 @@ export default function App() {
               <div className={`p-5 rounded-2xl border mb-8 ${subscription.isPremium ? 'bg-teal-50 border-teal-100' : 'bg-slate-50 border-slate-100'}`}>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Assinatura</p>
                 <p className={`text-2xl font-black ${subscription.isPremium ? 'text-teal-700' : 'text-slate-800'}`}>{subscription.isPremium ? 'PRO Ilimitado' : 'Versão Trial'}</p>
-                {!subscription.isPremium && <p className="text-xs text-slate-500 mt-1">Créditos de IA consumidos: {subscription.usage}/1</p>}
+                {!subscription.isPremium && <p className="text-xs text-slate-500 mt-1">Créditos de IA consumidos: {subscription.usage}/50</p>}
               </div>
               {!subscription.isPremium && (
                 <button onClick={handleRedirectToStripe} className="w-full py-5 bg-slate-900 text-white font-bold rounded-2xl shadow-2xl active:scale-95 transition-transform flex items-center justify-center gap-2 text-lg text-center">
