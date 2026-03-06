@@ -174,7 +174,6 @@ export default function App() {
     if (!imageFile) return showToast("Por favor, tire ou seleccione uma foto.", "error");
     if (!geminiApiKey) return showToast("Chave da IA não encontrada.", "error");
     
-    // AUMENTADO PARA 50 PARA TESTES DO AUDITOR
     if (!subscription.isPremium && subscription.usage >= 50) {
       showToast("Atingiu o limite do plano gratuito.", "error");
       setTimeout(() => setView('settings'), 2000);
@@ -202,23 +201,24 @@ export default function App() {
       const base64Data = imagePreview.split(',')[1];
       const mimeType = imagePreview.split(';')[0].split(':')[1];
       
-      // PROMPT CLÍNICO AVANÇADO (Com injecção de dados do paciente e controlo de tom)
-      const prompt = `Aja como um Médico Veterinário Especialista em Dermatologia.
+      // PROMPT CLÍNICO AVANÇADO E REFINADO
+      const prompt = `Atue EXCLUSIVAMENTE como um Médico Veterinário Especialista em Dermatologia (Mestrado/Doutorado).
       Paciente atual: Espécie ${selectedPatient?.species || 'Indefinida'}, Raça ${selectedPatient?.breed || 'Indefinida'}.
       
-      Analise a imagem da lesão cutânea deste paciente. Forneça um laudo técnico, direto, estritamente clínico e profissional.
-      Divida o laudo OBRIGATORIAMENTE nestas 3 seções exatas:
+      Realize uma análise dermatológica rigorosa e estritamente clínica da imagem fornecida. Considere a predisposição racial para dermatopatias.
+      
+      Estruture o laudo OBRIGATORIAMENTE nas seguintes 3 seções exatas:
       
       ### DESCRIÇÃO DA LESÃO
-      Descreva a morfologia, distribuição, cor, bordas e características da superfície observáveis.
+      Descreva detalhadamente o padrão morfológico usando semiologia veterinária (ex: mácula, pápula, pústula, colar epidérmico, alopecia, eritema, liquenificação, crostas, escamas, ulceração), sua distribuição e aspecto das bordas. Evite linguagem leiga.
       
       ### SUSPEITAS CLÍNICAS
-      Liste de 1 a 3 diagnósticos diferenciais mais prováveis considerando as características da lesão e a raça/espécie informada.
+      Liste os 3 principais diagnósticos diferenciais dermatológicos em ordem de probabilidade (ex: Piodermite bacteriana superficial/profunda, Dermatofitose, Demodiciose, Malasseziose, DAPP, Dermatite Atópica, Neoplasia cutânea, etc.). Justifique tecnicamente com base nos achados visuais e na raça.
       
       ### RECOMENDAÇÕES E CONDUTA
-      Sugira exames complementares (citologia, raspado, cultura) ou conduta terapêutica empírica inicial recomendada.
+      Especifique os exames complementares exatos necessários para fechar o diagnóstico (ex: Tricograma, Citologia por fita/imprint/swab, Raspado cutâneo profundo/superficial, Cultura fúngica/bacteriana, Biópsia). Sugira manejo tópico paliativo inicial seguro, se aplicável, ressaltando a necessidade de exames antes de antibioticoterapia sistêmica.
       
-      Não use saudações. Seja direto e científico.`;
+      Restrição: Responda apenas com dados médicos. Não use saudações. Seja direto, científico e baseie-se na literatura veterinária atual.`;
 
       let finalData = null;
       let lastError = "Nenhum modelo compatível encontrado.";
@@ -237,9 +237,9 @@ export default function App() {
                   { inlineData: { mimeType: mimeType, data: base64Data } }
                 ]
               }],
-              // Reduzindo a temperatura para forçar respostas mais técnicas e menos inventadas
+              // Ajuste sutil na temperatura: 0.2 permite um pouco mais de correlação médica sem alucinar
               generationConfig: {
-                temperature: 0.1
+                temperature: 0.2
               }
             })
           });
@@ -466,15 +466,15 @@ export default function App() {
 
                 {!aiResult && !isAnalyzing && (
                   <button onClick={analyzeImage} className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl shadow-xl active:scale-95 transition-transform flex items-center justify-center gap-2 text-lg">
-                    <ScanLine size={20}/> Gerar Laudo IA
+                    <ScanLine size={20}/> Gerar Laudo Clínico
                   </button>
                 )}
 
                 {isAnalyzing && (
                   <div className="text-center p-6 text-teal-600 font-bold animate-pulse flex flex-col items-center justify-center">
                     <BrainCircuit size={32} className="mx-auto mb-3 animate-bounce" />
-                    <p>A processar imagem e cruzar dados clínicos...</p>
-                    <p className="text-xs opacity-70 mt-1">A avaliar {selectedPatient?.species} - {selectedPatient?.breed}</p>
+                    <p>A cruzar dados clínicos da raça {selectedPatient?.breed}...</p>
+                    <p className="text-xs opacity-70 mt-1">Identificando padrões dermatológicos</p>
                   </div>
                 )}
 
